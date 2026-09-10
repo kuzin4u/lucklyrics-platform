@@ -1,0 +1,131 @@
+{
+  "$schema": "./brand.schema.json",
+  "instance": {
+    "id": "preview-demo",
+    "createdAt": "2026-09-10"
+  },
+  "brand": {
+    "name": "Другой магазин",
+    "legalName": "",
+    "tagline": "Другой подзаголовок",
+    "domain": "other-shop.ru",
+    "logo": "/assets/logo.png",
+    "palette": {
+      "accent": "#0B6B57"
+    },
+    "contacts": {
+      "phone": "",
+      "email": "",
+      "telegram": ""
+    },
+    "typography": "warm"
+  },
+  "branding": {
+    "poweredBy": false,
+    "poweredByText": "Работает на LuckLyrics",
+    "poweredByUrl": "https://lucklyrics.ru",
+    "note": "Подпись платформы включена по умолчанию, отключается в старшем тарифе"
+  },
+  "catalog": {
+    "source": "sheets",
+    "sourceUrl": "",
+    "categories": [],
+    "currency": "RUB",
+    "discountTiers": [
+      {
+        "min": 3,
+        "pct": 5
+      },
+      {
+        "min": 6,
+        "pct": 10
+      },
+      {
+        "min": 10,
+        "pct": 15
+      }
+    ]
+  },
+  "stock": {
+    "scheme": "buffer",
+    "bufferDefault": 3,
+    "bufferBySku": {},
+    "fulfillmentDefault": "FBS"
+  },
+  "payments": {
+    "provider": "yookassa",
+    "settlementDefault": "DIRECT",
+    "methods": [
+      "card",
+      "sbp"
+    ],
+    "fiscalization": "provider"
+  },
+  "marketplace": {
+    "enabled": true,
+    "code": "ozon",
+    "baseUrl": "https://api-seller.ozon.ru",
+    "dryRun": true,
+    "syncIntervalSec": 0,
+    "modes": [
+      "FBS",
+      "FBO"
+    ]
+  },
+  "channels": [
+    {
+      "code": "SITE",
+      "title": "Витрина",
+      "ownSum": true,
+      "ownStock": true,
+      "enabled": true
+    },
+    {
+      "code": "MARKETPLACE",
+      "title": "Маркетплейс",
+      "ownSum": false,
+      "ownStock": true,
+      "enabled": true
+    },
+    {
+      "code": "AGENT",
+      "title": "AI-помощник",
+      "ownSum": true,
+      "ownStock": true,
+      "enabled": true
+    },
+    {
+      "code": "BOT",
+      "title": "Telegram-бот",
+      "ownSum": true,
+      "ownStock": true,
+      "enabled": false
+    },
+    {
+      "code": "VK",
+      "title": "VK",
+      "ownSum": true,
+      "ownStock": true,
+      "enabled": false
+    }
+  ],
+  "agent": {
+    "enabled": true,
+    "model": "claude-haiku-4-5-20251001",
+    "autonomy": "mixed",
+    "autoReplyMinScore": 4,
+    "knowledgeFile": "config/knowledge.md"
+  },
+  "legal": {
+    "offerUrl": "/legal/offer.html",
+    "privacyUrl": "/legal/privacy.html",
+    "returnsUrl": "/legal/returns.html",
+    "requisites": ""
+  },
+  "texts": {
+    "heroTitle": "",
+    "heroLead": "",
+    "emptyCart": "Корзина пуста",
+    "orderCreated": "Заказ создан"
+  }
+}
