@@ -1,0 +1,41 @@
+# Развёртывание экземпляра платформы: серверный контур + статика витрины.
+# Оба сервиса из одного репозитория, витрина сама узнаёт адрес API.
+services:
+  - type: web
+    name: platform-api
+    runtime: node
+    rootDir: .
+    plan: starter          # без сна: вебхуки площадки не должны упираться в холодный старт
+    buildCommand: npm install
+    startCommand: node api/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: BRAND_CONFIG
+        value: config/brand.json
+      - key: MARKETPLACE_CLIENT_ID
+        sync: false
+      - key: MARKETPLACE_API_KEY
+        sync: false
+      - key: PAYMENT_SHOP_ID
+        sync: false
+      - key: PAYMENT_SECRET_KEY
+        sync: false
+      - key: MODEL_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+
+  - type: web
+    name: platform-web
+    runtime: static
+    rootDir: web
+    buildCommand: bash build.sh
+    staticPublishPath: .
+    envVars:
+      - key: API_HOST
+        fromService:
+          type: web
+          name: platform-api
+          property: host

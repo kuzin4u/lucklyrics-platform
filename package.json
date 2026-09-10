@@ -1,0 +1,12 @@
+{
+  "name": "platform-instance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Экземпляр платформы многоканальных продаж (white label)",
+  "scripts": {
+    "start": "node api/server.js",
+    "test": "node --test tests/unit/*.test.js",
+    "build:web": "bash web/build.sh"
+  },
+  "engines": { "node": ">=20" }
+}
