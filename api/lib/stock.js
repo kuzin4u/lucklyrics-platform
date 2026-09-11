@@ -165,8 +165,10 @@ function aggregate(lines) {
  * Списание по заказу. Сначала проверяются все строки, потом списываются все:
  * если хоть одна не проходит — не списывается ничего.
  * lines — физические позиции (наборы уже раскрыты). Возвращает то, что ушло со склада.
+ * physical — проверять физический остаток, а не доступность канала: заказ площадки
+ * уже продан, и страховой запас держится как раз на такой случай.
  */
-function reserveMany(lines, channelCode, { ref, by } = {}) {
+function reserveMany(lines, channelCode, { ref, by, physical } = {}) {
   const need = aggregate(lines);
   return change((s, at) => {
     for (const [id, qty] of need) {
@@ -174,10 +176,10 @@ function reserveMany(lines, channelCode, { ref, by } = {}) {
       if (!sku) fail('UNKNOWN_SKU', { id });
       if (isBundle(sku)) fail('BUNDLE_NOT_EXPANDED', { id });
       const lv = levelIn(s, id);
-      const available = availableFrom(sku, lv, channelCode);
+      const available = physical ? lv.stock : availableFrom(sku, lv, channelCode);
       // квота split может превышать физический остаток — в минус не уходим и тогда
-      const physical = fulfillmentOf(sku) === 'FBO' ? available : Math.min(available, lv.stock);
-      if (!(qty > 0) || physical < qty) fail('NOT_ENOUGH_STOCK', { id, available: clampNonNegative(physical) });
+      const onHand = fulfillmentOf(sku) === 'FBO' ? available : Math.min(available, lv.stock);
+      if (!(qty > 0) || onHand < qty) fail('NOT_ENOUGH_STOCK', { id, available: clampNonNegative(onHand) });
     }
     const moved = [];
     for (const [id, qty] of need) {

@@ -64,9 +64,9 @@ function createSync(opts = {}) {
 
   /* ---------- что уходит ---------- */
 
-  const priceRow = p => ({ offer_id: String(p.id), price: String(p.price),
+  const priceRow = p => ({ offer_id: catalog.offerIdOf(p), price: String(p.price),
     old_price: String(p.oldPrice > p.price ? p.oldPrice : 0), currency_code: config.get('catalog.currency', 'RUB') });
-  const stockRow = p => ({ offer_id: String(p.id), stock: stock.availableStock(p, 'MARKETPLACE'),
+  const stockRow = p => ({ offer_id: catalog.offerIdOf(p), stock: stock.availableStock(p, 'MARKETPLACE'),
     warehouse_id: mp().warehouseId || null });
 
   /** Посылки по выбранным позициям. Наборы и склад площадки — в skipped с причиной. */
@@ -161,7 +161,10 @@ function createSync(opts = {}) {
       for (const e of entries) {
         if (e.ok) continue;
         const refused = e.rejected && e.rejected.length ? new Set(e.rejected.map(r => r.offer_id)) : null;
-        for (const r of e.rows) if (!refused || refused.has(r.offer_id)) mark(r.offer_id, e.kind === 'prices' ? { price: true } : { stock: true }, 'повтор');
+        for (const r of e.rows) {
+          const p = catalog.byOfferId(r.offer_id);
+          if (p && (!refused || refused.has(r.offer_id))) mark(String(p.id), e.kind === 'prices' ? { price: true } : { stock: true }, 'повтор');
+        }
       }
       if (entries.length) await record(entries);
       return entries;

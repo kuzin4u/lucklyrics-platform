@@ -1,0 +1,35 @@
+{
+  "_note": "Пример ответа площадки на /v3/posting/fbs/unfulfilled/list, обезличенный. Формат — по документации Ozon Seller API. Отправления со своего склада.",
+  "result": {
+    "postings": [
+      {
+        "posting_number": "05708065-0029-1",
+        "order_id": 680420041,
+        "order_number": "05708065-0029",
+        "status": "awaiting_packaging",
+        "in_process_at": "2026-09-11T08:12:00Z",
+        "shipment_date": "2026-09-12T14:00:00Z",
+        "delivery_method": { "id": 21321684811000, "name": "Ozon Логистика самостоятельно", "warehouse_id": 21321684811000, "warehouse": "Склад продавца" },
+        "customer": null,
+        "products": [
+          { "sku": 1543210001, "offer_id": "OZ-SKU-001", "name": "Позиция первая", "quantity": 2, "price": "359.0000", "currency_code": "RUB" }
+        ]
+      },
+      {
+        "posting_number": "05708077-0031-1",
+        "order_id": 680420057,
+        "order_number": "05708077-0031",
+        "status": "awaiting_deliver",
+        "in_process_at": "2026-09-11T09:40:00Z",
+        "shipment_date": "2026-09-12T14:00:00Z",
+        "delivery_method": { "id": 21321684811000, "name": "Ozon Логистика самостоятельно", "warehouse_id": 21321684811000, "warehouse": "Склад продавца" },
+        "customer": { "name": "Покупатель Тестовый", "phone": "+70000000001", "address": { "address_tail": "г. Тестовый, ул. Примерная, 2" } },
+        "products": [
+          { "sku": 1543210002, "offer_id": "SKU-002", "name": "Позиция вторая", "quantity": 1, "price": "329.0000", "currency_code": "RUB" },
+          { "sku": 1543210004, "offer_id": "SKU-004", "name": "Позиция четвёртая", "quantity": 3, "price": "219.5000", "currency_code": "RUB" }
+        ]
+      }
+    ],
+    "has_next": false
+  }
+}

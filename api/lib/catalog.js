@@ -85,6 +85,10 @@ function save(mutator) {
 
 const byId = id => all().find(p => String(p.id) === String(id)) || null;
 
+/** Артикул на площадке: собственный, если задан, иначе идентификатор позиции. Единственное место. */
+const offerIdOf = p => String(p.offerId || p.id);
+const byOfferId = offer => all().find(p => offerIdOf(p) === String(offer)) || null;
+
 const categories = () => {
   const seen = new Map();
   for (const p of all()) if (p.category && !seen.has(p.category)) seen.set(p.category, p.categoryTitle || p.category);
@@ -183,4 +187,4 @@ function expand(lines) {
 
 function reset() { cache = null; }
 
-module.exports = { all, byId, categories, forChannel, product, media, quote, expand, discountPct, init, save, reset, file, events };
+module.exports = { all, byId, offerIdOf, byOfferId, categories, forChannel, product, media, quote, expand, discountPct, init, save, reset, file, events };

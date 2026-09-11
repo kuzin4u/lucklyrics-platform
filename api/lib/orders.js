@@ -58,6 +58,26 @@ async function create({ items, customer, channel, settlement }) {
   return order;
 }
 
+/**
+ * Заказ площадки. Сумму посчитала она: наш расчёт и скидки не применяются.
+ * Идемпотентность по номеру отправления: повторная доставка не записывается,
+ * возвращается уже записанный заказ. → { order, created }
+ */
+async function addExternal(draft) {
+  let result;
+  await store.update(NAME, list => {
+    list = list || [];
+    const same = list.find(o => o.external && o.external.source === draft.external.source && o.external.postingNumber === draft.external.postingNumber);
+    if (same) { result = { order: same, created: false }; return list; }
+    const order = Object.assign({ id: genId(), at: new Date().toISOString() }, draft, { statusTitle: TITLES[draft.status] });
+    result = { order, created: true };
+    return [order].concat(list);
+  });
+  return result;
+}
+const byExternal = async (source, postingNumber) =>
+  (await allOrders()).find(o => o.external && o.external.source === source && o.external.postingNumber === postingNumber) || null;
+
 const allOrders = async () => (await store.read(NAME)) || [];
 const byId = async id => (await allOrders()).find(o => o.id === id) || null;
 
@@ -96,10 +116,11 @@ function stats(list) {
     orders: os.length, revenue,
     avgCheck: os.length ? Math.round(revenue / os.length) : 0,
     items: os.reduce((s, o) => s + o.qty, 0),
+    problems: all.filter(o => o.problems && o.problems.length && o.status !== 'CANCELLED').length,
     byChannel, byStatus
   };
 }
 
 const reset = () => store.write(NAME, []);
 
-module.exports = { create, allOrders, byId, advance, stats, reset, FLOW, TITLES };
+module.exports = { create, addExternal, byExternal, newId: genId, allOrders, byId, advance, stats, reset, FLOW, TITLES };

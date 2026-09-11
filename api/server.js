@@ -18,6 +18,7 @@ const auth = require('./lib/auth');
 const store = require('./lib/store');
 const importer = require('./lib/import');
 const sync = require('./lib/sync');
+const mpOrders = require('./lib/marketplace/orders');
 
 const PORT = Number(process.env.PORT || 3000);
 const json = (res, code, body) => {
@@ -154,6 +155,13 @@ const routes = {
   'POST /api/sync/run': cabinet(async (req, res, query, body, seller) =>
     json(res, 200, await sync.run({ preview: ['1', 'true'].includes(query.get('dryRun')), by: seller.login }))),
   'GET /api/sync/diff': cabinet(async (req, res) => json(res, 200, await sync.diff())),
+
+  // Заказы площадки: тело — её ответ со списком отправлений, ?scheme=FBS|FBO — если не по форме.
+  // Пока ключа нет — загрузка сохранённого ответа; с ключом сюда же пойдёт ответ клиента.
+  'POST /api/marketplace/orders': cabinet(async (req, res, query, body) => {
+    try { json(res, 200, await mpOrders.ingest(body, { scheme: query.get('scheme') || undefined })); }
+    catch (e) { if (e.code !== 'BAD_PAYLOAD') throw e; json(res, 400, { error: e.code, message: e.message }); }
+  }),
 
   'GET /api/marketplace/journal': cabinet((req, res) => json(res, 200, {
     dryRun: marketplace.isDry(), entries: marketplace.journal.slice(-50)

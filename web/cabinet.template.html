@@ -61,6 +61,10 @@ tr:hover td{background:#fdfcff}
 .s-SHIPPED{background:#e5f3ff;color:#0a63b8}
 .s-DONE{background:var(--ok-l);color:var(--ok)}
 .s-CANCELLED{background:var(--bad-l);color:var(--bad)}
+.s-PROBLEM{background:var(--bad);color:#fff}
+tr.problem td{background:#fff7f8}
+.problem-note{margin-top:4px;font-size:12px;color:var(--bad);max-width:240px}
+.ext{font-size:11.5px;color:var(--soft);margin-top:2px}
 .rowbtn{border:1px solid var(--rule);background:#fff;border-radius:8px;padding:5px 11px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
 .rowbtn:hover{border-color:var(--accent);color:var(--accent-dark)}
 .rowbtn.cancel{color:var(--bad)}
@@ -139,6 +143,7 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
   </section>
 
   <div id="board" hidden>
+  <div class="sync-alert" id="problemAlert" role="alert" hidden><span id="problemAlertText"></span><button class="rowbtn" data-st="PROBLEM">Показать</button></div>
   <div class="sync-alert" id="syncAlert" role="alert" hidden><span id="syncAlertText"></span><button class="rowbtn" id="toSync">Открыть</button></div>
   <div class="kpis">
     <div class="kpi"><div class="l">Заказов</div><div class="v" id="kOrders">—</div></div>
@@ -232,7 +237,8 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
 <script>
 const API = "__API_URL__".startsWith("__API") ? "" : "__API_URL__";
 const $ = id => document.getElementById(id);
-const rub = n => Math.round(n).toLocaleString('ru-RU') + ' \u20BD';
+// копейки не округляются: суммы площадки приходят с ними
+const rub = n => Number(n || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' \u20BD';
 // данные покупателя приходят с витрины — в разметку только через экранирование
 const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const NO_SECRET = 'Вход на сервере не настроен: не задан JWT_SECRET.';
@@ -296,7 +302,9 @@ const line = i => '<div>' + esc(i.title) + ' \u00D7' + i.qty + '</div>' +
 const moved = o => o.reserved && o.items.some(i => i.kind === 'bundle')
   ? '<div class="moved"><b>списано со склада:</b> ' + o.reserved.map(r => esc(r.title) + ' \u00D7' + r.qty).join(', ') + '</div>' : '';
 
-const match = o => (fCh === 'all' || o.channel === fCh) && (fSt === 'all' || o.status === fSt);
+// проблемный — заказ площадки, который не удалось списать или сопоставить с каталогом
+const isProblem = o => !!(o.problems && o.problems.length && o.status !== 'CANCELLED');
+const match = o => (fCh === 'all' || o.channel === fCh) && (fSt === 'all' || (fSt === 'PROBLEM' ? isProblem(o) : o.status === fSt));
 
 function render() {
   $('kOrders').textContent = stats.orders || 0;
@@ -314,19 +322,25 @@ function render() {
   const titles = { NEW: 'Новые', PACKING: 'Собираются', SHIPPED: 'В доставке', DONE: 'Доставлены', CANCELLED: 'Отменены' };
   $('pipe').innerHTML = '<button data-st="all" aria-pressed="' + (fSt === 'all') + '"><div class="n">' + base.length + '</div><div class="s">Все заказы</div></button>' +
     Object.keys(titles).map(st =>
-      '<button data-st="' + st + '" aria-pressed="' + (fSt === st) + '"><div class="n">' + base.filter(o => o.status === st).length + '</div><div class="s">' + titles[st] + '</div></button>').join('');
+      '<button data-st="' + st + '" aria-pressed="' + (fSt === st) + '"><div class="n">' + base.filter(o => o.status === st).length + '</div><div class="s">' + titles[st] + '</div></button>').join('') +
+    (base.some(isProblem) ? '<button data-st="PROBLEM" aria-pressed="' + (fSt === 'PROBLEM') + '"><div class="n" style="color:var(--bad)">' + base.filter(isProblem).length + '</div><div class="s">Требуют внимания</div></button>' : '');
+  const nProblems = orders.filter(isProblem).length;
+  $('problemAlert').hidden = !nProblems;
+  $('problemAlertText').textContent = nProblems ? 'Требуют внимания заказов площадки: ' + nProblems + '. Площадка их уже продала — пополните остаток или отмените заказ на площадке.' : '';
 
   const list = orders.filter(match);
   $('rows').innerHTML = list.length ? list.map(o => {
     const nx = FLOW[o.status];
-    return '<tr>' +
-      '<td><div class="oid">' + o.id + '</div><div class="soft">' + new Date(o.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + '</div></td>' +
+    return '<tr' + (isProblem(o) ? ' class="problem"' : '') + '>' +
+      '<td><div class="oid">' + o.id + '</div><div class="soft">' + new Date(o.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + '</div>' +
+        (o.external ? '<div class="ext">' + (o.external.source === 'ozon' ? 'Ozon' : esc(o.external.source)) + ' · ' + esc(o.external.scheme) + ' · ' + esc(o.external.postingNumber) + '</div>' : '') + '</td>' +
       '<td>' + (esc(o.customer.name) || '—') + '<div class="soft">' + esc(o.customer.phone) + '</div></td>' +
       '<td class="soft" style="max-width:300px">' + o.items.map(line).join('') +
         (o.discount ? '<div>скидка \u2212' + o.discountPct + '%</div>' : '') + moved(o) + '</td>' +
       '<td><span class="tag">' + (o.channelTitle || o.channel) + '</span></td>' +
       '<td><b>' + rub(o.total) + '</b></td>' +
-      '<td><span class="st s-' + o.status + '">' + o.statusTitle + '</span></td>' +
+      '<td><span class="st s-' + o.status + '">' + o.statusTitle + '</span>' +
+        (isProblem(o) ? ' <span class="st s-PROBLEM">проблема</span>' + o.problems.map(p => '<div class="problem-note">' + esc(p.message) + '</div>').join('') : '') + '</td>' +
       '<td>' + (nx ? '<button class="rowbtn" data-adv="' + o.id + '" data-to="' + nx[0] + '">' + nx[1] + '</button> ' : '') +
         (o.status !== 'DONE' && o.status !== 'CANCELLED' ? '<button class="rowbtn cancel" data-adv="' + o.id + '" data-to="CANCELLED">Отменить</button>' : '') + '</td>' +
     '</tr>';

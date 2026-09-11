@@ -28,6 +28,7 @@ const stock = require('./stock');
 /** Поле каталога → возможные названия колонки, первое — основное. */
 const COLUMNS = {
   id:               ['id', 'ид', 'артикул', 'sku', 'код'],
+  offerId:          ['offer_id', 'offerid', 'артикул площадки', 'артикул на площадке'],
   title:            ['title', 'name', 'название', 'наименование'],
   price:            ['price', 'цена'],
   oldPrice:         ['oldprice', 'old_price', 'старая цена'],
@@ -52,7 +53,7 @@ const COLUMNS = {
 const STOCK_FIELDS = ['stock', 'marketplaceStock'];
 
 const TITLES = {
-  id: 'артикул', title: 'название', price: 'цена', oldPrice: 'старая цена', stock: 'остаток',
+  id: 'артикул', offerId: 'артикул площадки', title: 'название', price: 'цена', oldPrice: 'старая цена', stock: 'остаток',
   marketplaceStock: 'остаток площадки', fulfillment: 'схема исполнения', category: 'категория',
   categoryTitle: 'название категории', unit: 'единица', weight: 'вес', emoji: 'эмодзи',
   description: 'описание', features: 'особенности', photos: 'фотографии', rating: 'рейтинг', reviews: 'отзывы',
@@ -203,7 +204,7 @@ function components(v) {
 const showComponents = cs => (cs || []).map(c => c.id + '×' + c.qty).join('|');
 
 const PARSE = {
-  id: text, title: text, category: text, categoryTitle: text, unit: text, weight: text, emoji: text, description: text,
+  id: text, offerId: text, title: text, category: text, categoryTitle: text, unit: text, weight: text, emoji: text, description: text,
   price: money('цена'), oldPrice: money('старая цена'),
   stock: count('остаток'), marketplaceStock: count('остаток площадки'), reviews: count('отзывы'),
   rating: v => { const n = number(v); if (Number.isNaN(n) || n < 0 || n > 5) throw 'рейтинг — нужно число от 0 до 5 (' + shown(v) + ')'; return n; },
@@ -280,6 +281,18 @@ function plan(parsed, items, levelOf) {
       else if (k === 'broken') r.problems.push('компонент ' + c.id + ' не импортируется: ошибка в строке ' + rowOf.get(c.id).line);
       else if (k === 'bundle') r.problems.push('набор внутри набора запрещён: ' + c.id + ' — набор');
     }
+  }
+
+  // 2б. артикул площадки однозначен: по нему приходят заказы и уходят цены и остатки
+  const effective = new Map();                                   // артикул площадки → позиция
+  const own = (id, offer) => { const prev = effective.get(offer); if (prev && prev !== id) return prev; effective.set(offer, id); return null; };
+  const rowIds = new Set(rows.filter(r => !r.problems.length).map(r => r.id));
+  for (const p of items) if (!rowIds.has(String(p.id))) own(String(p.id), catalog.offerIdOf(p));
+  for (const r of rows) {
+    if (r.problems.length) continue;
+    const offer = String(r.values.offerId || (r.old && r.old.offerId) || r.id);
+    const clash = own(r.id, offer);
+    if (clash) r.problems.push('артикул площадки «' + offer + '» уже у позиции ' + clash);
   }
 
   // 3. итог по строкам
