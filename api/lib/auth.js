@@ -6,24 +6,20 @@
  * Токен — формат JWT (заголовок.полезная нагрузка.подпись, base64url),
  * подпись HMAC-SHA256. Всё на node:crypto, внешних пакетов нет.
  *
+ * Продавцы — в хранилище под именем auth (store.js), где лежат — модуль не знает.
  * Секрет подписи — только JWT_SECRET из окружения. Нет секрета — нет работы:
  * подставленное значение по умолчанию обнулило бы всю защиту.
  * Идентификатор продавца берётся только из подписанного токена, никогда
  * из тела запроса или адреса.
  */
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const { promisify } = require('util');
 const config = require('./config');
+const store = require('./store');
 
 const scrypt = promisify(crypto.scrypt);
 
-const ROOT = path.resolve(__dirname, '..', '..');
-const FILE = process.env.AUTH_FILE
-  ? path.resolve(ROOT, process.env.AUTH_FILE)
-  : path.join(ROOT, 'data', 'auth.json');
-
+const NAME = 'auth';
 const TTL_SEC = 12 * 60 * 60;
 const MIN_SECRET = 32;
 const MIN_PASSWORD = 8;
@@ -51,16 +47,7 @@ const owns = seller => !!seller && seller.instanceId === currentInstance();
 
 /* ---------- хранилище ---------- */
 
-function readStore() {
-  try { return JSON.parse(fs.readFileSync(FILE, 'utf8')); }
-  catch (e) { if (e.code === 'ENOENT') return { sellers: [] }; throw e; }
-}
-function writeStore(store) {
-  fs.mkdirSync(path.dirname(FILE), { recursive: true });
-  const tmp = FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(store, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, FILE);
-}
+const sellersOf = data => (data && data.sellers) || [];
 const normLogin = l => String(l == null ? '' : l).trim().toLowerCase();
 const publicSeller = s => ({ login: s.login, instanceId: s.instanceId });
 
@@ -119,21 +106,23 @@ async function register(login, password, { instanceId } = {}) {
   if (typeof password !== 'string' || password.length < MIN_PASSWORD) {
     throw err('WEAK_PASSWORD', 'пароль короче ' + MIN_PASSWORD + ' символов');
   }
-  const store = readStore();
-  if (store.sellers.some(s => s.login === l)) throw err('LOGIN_TAKEN', 'логин «' + l + '» уже заведён');
   const seller = {
     login: l, instanceId: instanceId || currentInstance(),
     password: await hashPassword(password), createdAt: new Date().toISOString()
   };
-  store.sellers.push(seller);
-  writeStore(store);
+  // проверка занятости внутри update: два одинаковых логина параллельно не пройдут
+  await store.update(NAME, data => {
+    const sellers = sellersOf(data);
+    if (sellers.some(s => s.login === l)) throw err('LOGIN_TAKEN', 'логин «' + l + '» уже заведён');
+    return { sellers: sellers.concat(seller) };
+  });
   return publicSeller(seller);
 }
 
 /** Токен на 12 часов. Неверный пароль и чужой логин неотличимы: INVALID_CREDENTIALS. */
 async function login(login, password) {
   const key = secret();
-  const seller = readStore().sellers.find(s => s.login === normLogin(login));
+  const seller = sellersOf(await store.read(NAME)).find(s => s.login === normLogin(login));
   const ok = await checkPassword(String(password == null ? '' : password), seller ? seller.password : DUMMY);
   if (!seller || !ok) throw err('INVALID_CREDENTIALS', 'неверный логин или пароль');
   const now = Math.floor(Date.now() / 1000);
@@ -160,4 +149,4 @@ function requireOwner(req) {
   return seller;
 }
 
-module.exports = { register, login, verify, requireSeller, requireOwner, owns, assertConfigured, TTL_SEC, FILE };
+module.exports = { register, login, verify, requireSeller, requireOwner, owns, assertConfigured, TTL_SEC };

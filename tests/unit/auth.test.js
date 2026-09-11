@@ -9,9 +9,13 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
+const os = require('os');
+
 const ROOT = path.resolve(__dirname, '..', '..');
-process.env.AUTH_FILE = 'data/auth.test.json';
-process.env.ORDERS_FILE = 'data/orders.auth-test.json';
+// файловое хранилище во временной папке: проверяется то, что реально лежит на диске
+const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'auth-test-'));
+process.env.STORE_PROVIDER = 'file';
+process.env.DATA_DIR = DATA_DIR;
 const SECRET = 'test-secret-for-cabinet-tokens-0123456789';
 const OTHER_SECRET = 'another-instance-secret-9876543210-abcdef';
 process.env.JWT_SECRET = SECRET;
@@ -20,7 +24,7 @@ const { server, config, catalog, orders, auth } = require('../../api/server');
 
 const A = { login: 'seller-a', password: 'пароль-продавца-А' };
 const STRANGER = { login: 'stranger', password: 'пароль-чужого-экземпляра' };
-const AUTH_PATH = path.join(ROOT, process.env.AUTH_FILE);
+const AUTH_PATH = path.join(DATA_DIR, 'auth.json');
 let base;
 
 async function call(method, route, { token, body } = {}) {
@@ -43,8 +47,7 @@ function withSecret(value, fn) {
 const payloadOf = token => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
 
 test.before(async () => {
-  fs.rmSync(AUTH_PATH, { force: true });
-  orders.reset(); catalog.reset();
+  await orders.reset(); catalog.reset();
   await auth.register(A.login, A.password);
   await auth.register(STRANGER.login, STRANGER.password, { instanceId: 'someone-else' });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -52,8 +55,7 @@ test.before(async () => {
 });
 test.after(() => {
   server.close();
-  fs.rmSync(AUTH_PATH, { force: true });
-  fs.rmSync(path.join(ROOT, process.env.ORDERS_FILE), { force: true });
+  fs.rmSync(DATA_DIR, { recursive: true, force: true });
 });
 
 test('пароль в хранилище не хранится в открытом виде', async () => {
@@ -119,7 +121,7 @@ test('без заголовка Authorization кабинет отвечает 40
   const o = await newOrder();
   const w = await call('POST', '/api/orders/status', { body: { id: o.id, status: 'CANCELLED' } });
   assert.deepEqual([w.status, w.body.error], [401, 'UNAUTHORIZED']);
-  assert.equal(orders.byId(o.id).status, 'NEW', 'статус не изменился');
+  assert.equal((await orders.byId(o.id)).status, 'NEW', 'статус не изменился');
   const r = await call('GET', '/api/orders');
   assert.equal(r.status, 401);
   assert.ok(!('orders' in r.body), 'заказы без входа не отдаются');
@@ -145,7 +147,7 @@ test('чужой экземпляр получает 403', async () => {
   assert.equal(auth.verify(token).instanceId, 'someone-else', 'токен сам по себе действителен');
   const w = await call('POST', '/api/orders/status', { token, body: { id: o.id, status: 'CANCELLED', instanceId: config.get('instance.id') } });
   assert.deepEqual([w.status, w.body.error], [403, 'FORBIDDEN'], 'идентификатор экземпляра в теле не помогает');
-  assert.equal(orders.byId(o.id).status, 'NEW');
+  assert.equal((await orders.byId(o.id)).status, 'NEW');
   assert.equal((await call('GET', '/api/orders', { token })).status, 403);
 });
 
@@ -190,9 +192,8 @@ test('витрина остаётся публичной: каталог, рас
 });
 
 test('скрипт заводит продавца без ручной правки файлов', () => {
-  const env = { ...process.env, AUTH_FILE: 'data/auth.script-test.json' };
-  const file = path.join(ROOT, env.AUTH_FILE);
-  fs.rmSync(file, { force: true });
+  const env = { ...process.env, DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'add-seller-')) };
+  const file = path.join(env.DATA_DIR, 'auth.json');
   try {
     const out = execFileSync(process.execPath, ['api/scripts/add-seller.js', 'Owner@Shop', 'пароль-из-скрипта'], { cwd: ROOT, env, encoding: 'utf8' });
     assert.match(out, /owner@shop/);
@@ -200,5 +201,5 @@ test('скрипт заводит продавца без ручной прав�
     assert.ok(raw.includes('owner@shop') && !raw.includes('пароль-из-скрипта'));
     assert.throws(() => execFileSync(process.execPath, ['api/scripts/add-seller.js', 'owner@shop', 'ещё-один-пароль'], { cwd: ROOT, env, stdio: 'pipe' }),
       'повторный логин не заводится');
-  } finally { fs.rmSync(file, { force: true }); }
+  } finally { fs.rmSync(env.DATA_DIR, { recursive: true, force: true }); }
 });

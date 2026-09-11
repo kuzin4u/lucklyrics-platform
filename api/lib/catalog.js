@@ -2,16 +2,23 @@
 /**
  * Каталог. Единственная точка чтения товаров.
  *
- * Источник задаётся конфигурацией: сейчас файл, дальше — таблица или база.
  * Витрина, кабинет и синхронизация спрашивают отсюда и не знают, откуда взялось.
+ *
+ * Источник: каталог в хранилище (store.js, имя catalog), его пишет импорт.
+ * Пока импорта не было — стартовый файл config/catalog.json.
+ * Чтение синхронное: хранилище читается один раз при старте (init),
+ * дальше работает копия в памяти, её же меняют списания остатка.
  */
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const stock = require('./stock');
+const store = require('./store');
 
 const ROOT = path.resolve(__dirname, '..', '..');
+const NAME = 'catalog';
 let cache = null;
+let saving = Promise.resolve();
 
 function file() {
   return process.env.CATALOG_FILE
@@ -19,14 +26,37 @@ function file() {
     : path.join(ROOT, 'config', 'catalog.json');
 }
 
+const normalize = it => Object.assign({
+  fulfillment: config.get('stock.fulfillmentDefault', 'FBS'),
+  stock: 0, oldPrice: 0, photos: [], features: []
+}, it);
+
 function all() {
   if (cache) return cache;
-  const raw = JSON.parse(fs.readFileSync(file(), 'utf8'));
-  cache = raw.items.map(it => Object.assign({
-    fulfillment: config.get('stock.fulfillmentDefault', 'FBS'),
-    stock: 0, oldPrice: 0, photos: [], features: []
-  }, it));
+  cache = JSON.parse(fs.readFileSync(file(), 'utf8')).items.map(normalize);
   return cache;
+}
+
+/** При старте: каталог из хранилища, если его уже загружали импортом. */
+async function init() {
+  const saved = await store.read(NAME);
+  if (saved && Array.isArray(saved.items)) cache = saved.items.map(normalize);
+  return all();
+}
+
+/**
+ * Замена каталога: mutator получает текущие позиции и возвращает новые, не меняя
+ * старых на месте. Сохранения идут по очереди, копия в памяти обновляется после записи.
+ */
+function save(mutator) {
+  const run = saving.then(async () => {
+    const next = mutator(all());
+    await store.write(NAME, { items: next, savedAt: new Date().toISOString() });
+    cache = next.map(normalize);
+    return cache;
+  });
+  saving = run.catch(() => {});
+  return run;
 }
 
 const byId = id => all().find(p => String(p.id) === String(id)) || null;
@@ -80,4 +110,4 @@ function quote(items, channelCode) {
 
 function reset() { cache = null; }
 
-module.exports = { all, byId, categories, forChannel, quote, discountPct, reset, file };
+module.exports = { all, byId, categories, forChannel, quote, discountPct, init, save, reset, file };

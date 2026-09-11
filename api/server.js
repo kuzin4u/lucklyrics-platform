@@ -15,6 +15,8 @@ const marketplace = require('./lib/marketplace/client');
 const catalog = require('./lib/catalog');
 const orders = require('./lib/orders');
 const auth = require('./lib/auth');
+const store = require('./lib/store');
+const importer = require('./lib/import');
 
 const PORT = Number(process.env.PORT || 3000);
 const json = (res, code, body) => {
@@ -53,6 +55,7 @@ const routes = {
     marketplace: marketplace.isDry() ? 'dry-run' : 'live',
     payments: payments.adapterFor().name + (payments.adapterFor().live() ? ':live' : ':dry'),
     stockScheme: config.get('stock.scheme'),
+    storage: store.name(),
     previews: config.listPreviews(),
     time: new Date().toISOString()
   }),
@@ -100,11 +103,27 @@ const routes = {
     catch (e) { if (!authFailed(res, e)) throw e; }
   },
 
-  'GET /api/orders': cabinet((req, res) => json(res, 200, { orders: orders.allOrders(), stats: orders.stats() })),
+  'GET /api/orders': cabinet(async (req, res) => {
+    const list = await orders.allOrders();
+    json(res, 200, { orders: list, stats: orders.stats(list) });
+  }),
 
-  'POST /api/orders/status': cabinet((req, res, query, body, seller) => {
-    try { json(res, 200, orders.advance(body.id, body.status, seller.login)); }
+  'POST /api/orders/status': cabinet(async (req, res, query, body, seller) => {
+    try { json(res, 200, await orders.advance(body.id, body.status, seller.login)); }
     catch (e) { json(res, e.code === 'ORDER_NOT_FOUND' ? 404 : 400, { error: e.code || 'BAD_REQUEST' }); }
+  }),
+
+  // Тело — сам файл CSV или JSON; ?dryRun=1 — предпросмотр без записи.
+  'POST /api/catalog/import': cabinet(async (req, res, query) => {
+    try {
+      json(res, 200, await importer.run(req.rawBody, {
+        format: query.get('format') || req.headers['content-type'],
+        dryRun: ['1', 'true'].includes(query.get('dryRun'))
+      }));
+    } catch (e) {
+      if (e.code !== 'BAD_FILE') throw e;
+      json(res, 400, { error: 'BAD_FILE', message: e.message });
+    }
   }),
 
   'GET /api/marketplace/journal': cabinet((req, res) => json(res, 200, {
@@ -112,13 +131,16 @@ const routes = {
   }))
 };
 
+/** Сырое тело — Buffer: кодировку файла импорта определяет импорт, а не сервер. */
 function readBody(req) {
   return new Promise(resolve => {
-    let raw = '';
-    req.on('data', c => { raw += c; if (raw.length > 1e6) req.destroy(); });
-    req.on('end', () => { try { resolve(raw ? JSON.parse(raw) : {}); } catch { resolve({}); } });
+    const chunks = [];
+    let size = 0;
+    req.on('data', c => { chunks.push(c); size += c.length; if (size > 5e6) req.destroy(); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
   });
 }
+const parseJson = raw => { try { return raw.length ? JSON.parse(raw.toString('utf8')) : {}; } catch { return {}; } };
 
 const server = http.createServer(async (req, res) => {
   const [pathname, qs] = req.url.split('?');
@@ -129,7 +151,8 @@ const server = http.createServer(async (req, res) => {
 
   const handler = routes[req.method + ' ' + pathname];
   if (!handler) return json(res, 404, { error: 'NOT_FOUND', route: req.method + ' ' + pathname });
-  const body = req.method === 'POST' ? await readBody(req) : {};
+  req.rawBody = req.method === 'POST' ? await readBody(req) : Buffer.alloc(0);
+  const body = parseJson(req.rawBody);
   try { await handler(req, res, new URLSearchParams(qs || ''), body); }
   catch (e) { json(res, 500, { error: 'INTERNAL', message: e.message }); }
 });
@@ -137,6 +160,7 @@ const server = http.createServer(async (req, res) => {
 if (require.main === module) {
   try { auth.assertConfigured(); }
   catch (e) { console.error('Сервер не запущен: ' + e.message); process.exit(1); }
-  server.listen(PORT, () => console.log('api on :' + PORT + ' · конфиг ' + config.load()._source));
+  catalog.init().then(() => server.listen(PORT, () =>
+    console.log('api on :' + PORT + ' · конфиг ' + config.load()._source + ' · хранилище ' + store.name())));
 }
-module.exports = { server, routes, config, brand, stock, payments, marketplace, catalog, orders, auth };
+module.exports = { server, routes, config, brand, stock, payments, marketplace, catalog, orders, auth, store, importer };

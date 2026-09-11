@@ -4,38 +4,18 @@
  *
  * Сумма считается сервером через catalog.quote — витрине не доверяем.
  * Остаток списывается через stock.js, платёж создаётся через адаптер.
- * Хранилище файловое: на площадке размещения диск эфемерный, поэтому на этапе
- * данных заменяется постоянным. Интерфейс модуля при этом не меняется.
+ * Данные — через store.js: где они лежат, модуль не знает.
  */
-const fs = require('fs');
-const path = require('path');
+const store = require('./store');
 const catalog = require('./catalog');
 const stock = require('./stock');
 const config = require('./config');
 const payments = require('./payments');
 
-const ROOT = path.resolve(__dirname, '..', '..');
-const FILE = process.env.ORDERS_FILE
-  ? path.resolve(ROOT, process.env.ORDERS_FILE)
-  : path.join(ROOT, 'data', 'orders.json');
-
 const FLOW = { NEW: 'PACKING', PACKING: 'SHIPPED', SHIPPED: 'DONE', DONE: null, CANCELLED: null };
 const TITLES = { NEW: 'Новый', PACKING: 'Собирается', SHIPPED: 'Доставляется', DONE: 'Доставлен', CANCELLED: 'Отменён' };
 
-let list = null;
-
-function load() {
-  if (list) return list;
-  try { list = JSON.parse(fs.readFileSync(FILE, 'utf8')); }
-  catch { list = []; }
-  return list;
-}
-function save() {
-  try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    fs.writeFileSync(FILE, JSON.stringify(list, null, 2));
-  } catch (e) { console.warn('[orders] не сохранено:', e.message); }
-}
+const NAME = 'orders';
 const genId = () => 'ORD-' + Date.now().toString(36).toUpperCase().slice(-5) +
   Math.random().toString(36).slice(2, 5).toUpperCase();
 
@@ -67,37 +47,42 @@ async function create({ items, customer, channel, settlement }) {
     order.payment = { error: e.code || e.message };
   }
 
-  load().unshift(order); save();
+  await store.update(NAME, list => [order].concat(list || []));
   return order;
 }
 
-const allOrders = () => load();
-const byId = id => load().find(o => o.id === id) || null;
+const allOrders = async () => (await store.read(NAME)) || [];
+const byId = async id => (await allOrders()).find(o => o.id === id) || null;
 
 /** Следующий статус по потоку. Возврат остатка при отмене. by — кто перевёл, из токена. */
-function advance(id, to, by) {
-  const o = byId(id);
-  if (!o) { const e = new Error('ORDER_NOT_FOUND'); e.code = 'ORDER_NOT_FOUND'; throw e; }
-  const next = to || FLOW[o.status];
-  if (!next || !(next in TITLES)) { const e = new Error('BAD_STATUS'); e.code = 'BAD_STATUS'; throw e; }
-  if (next === 'CANCELLED' && o.status !== 'CANCELLED') {
-    const ch = config.channel(o.channel);
-    if (ch.ownStock) for (const l of o.items) stock.release(catalog.byId(l.id), l.qty);
-  }
-  o.status = next; o.statusTitle = TITLES[next];
-  o.history = (o.history || []).concat({ at: new Date().toISOString(), status: next, by: by || null });
-  save();
-  return o;
+async function advance(id, to, by) {
+  let changed;
+  await store.update(NAME, list => {
+    const o = (list || []).find(x => x.id === id);
+    if (!o) { const e = new Error('ORDER_NOT_FOUND'); e.code = 'ORDER_NOT_FOUND'; throw e; }
+    const next = to || FLOW[o.status];
+    if (!next || !(next in TITLES)) { const e = new Error('BAD_STATUS'); e.code = 'BAD_STATUS'; throw e; }
+    if (next === 'CANCELLED' && o.status !== 'CANCELLED') {
+      const ch = config.channel(o.channel);
+      if (ch.ownStock) for (const l of o.items) stock.release(catalog.byId(l.id), l.qty);
+    }
+    o.status = next; o.statusTitle = TITLES[next];
+    o.history = (o.history || []).concat({ at: new Date().toISOString(), status: next, by: by || null });
+    changed = o;
+    return list;
+  });
+  return changed;
 }
 
 /** Сводка для кабинета: считается здесь, чтобы витрина и кабинет не расходились. */
-function stats() {
-  const os = load().filter(o => o.status !== 'CANCELLED');
+function stats(list) {
+  const all = list || [];
+  const os = all.filter(o => o.status !== 'CANCELLED');
   const revenue = os.reduce((s, o) => s + o.total, 0);
   const byChannel = {};
   for (const o of os) byChannel[o.channelTitle || o.channel] = (byChannel[o.channelTitle || o.channel] || 0) + 1;
   const byStatus = {};
-  for (const o of load()) byStatus[o.status] = (byStatus[o.status] || 0) + 1;
+  for (const o of all) byStatus[o.status] = (byStatus[o.status] || 0) + 1;
   return {
     orders: os.length, revenue,
     avgCheck: os.length ? Math.round(revenue / os.length) : 0,
@@ -106,6 +91,6 @@ function stats() {
   };
 }
 
-function reset() { list = []; save(); }
+const reset = () => store.write(NAME, []);
 
 module.exports = { create, allOrders, byId, advance, stats, reset, FLOW, TITLES };

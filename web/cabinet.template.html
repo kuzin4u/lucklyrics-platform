@@ -76,6 +76,16 @@ tr:hover td{background:#fdfcff}
 .note{margin-top:12px;font-size:13px;border-radius:9px;padding:9px 12px;background:var(--warn-l);color:var(--warn)}
 .note.bad{background:var(--bad-l);color:var(--bad)}
 header .who{align-self:center;font-size:12.5px;color:var(--soft)}
+.ghost[aria-pressed="true"]{border-color:var(--accent);color:var(--accent-dark);background:var(--accent-light)}
+.imp-pick{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.imp-pick input{font:inherit;font-size:13px}
+.imp-pick .primary,.imp-apply .primary{width:auto;margin-top:0;padding:10px 18px}
+.imp-apply{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.errs{margin:10px 0 0;padding:10px 12px 10px 30px;border-radius:9px;background:var(--bad-l);color:var(--bad);font-size:13px}
+.errs li+li{margin-top:3px}
+.tag.new{background:var(--ok-l);color:var(--ok)}
+.chg{font-size:12.5px}
+.chg s{color:var(--soft)}
 </style>
 </head>
 <body>
@@ -86,6 +96,8 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
   <span class="right">
     <span class="who" id="who" hidden></span>
     <a class="ghost" href="index.html">Открыть витрину</a>
+    <button class="ghost" id="navOrders" hidden>Заказы</button>
+    <button class="ghost" id="navImport" hidden>Импорт каталога</button>
     <button class="ghost" id="reload" hidden>Обновить</button>
     <button class="ghost" id="logout" hidden>Выйти</button>
   </span>
@@ -134,6 +146,42 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
     <div class="soft" id="foot" style="margin-top:12px"></div>
   </section>
   </div>
+
+  <div id="importView" hidden>
+    <section class="panel">
+      <h2>Импорт каталога</h2>
+      <div class="soft">CSV (разделитель «;», «,» или табуляция) или JSON. Колонки узнаются по названиям
+        на русском и английском: артикул / id, название / name, цена / price, остаток / stock, категория / category…
+        Незнакомые колонки сохраняются дополнительными полями. Пустая ячейка значение не меняет.
+        Повторная загрузка того же файла обновляет позиции, дублей не будет.</div>
+      <div class="imp-pick">
+        <input type="file" id="impFile" accept=".csv,.json,.txt,text/csv,application/json">
+        <button class="primary" id="impCheck" disabled>Проверить</button>
+      </div>
+    </section>
+
+    <section class="panel" id="impResult" hidden>
+      <h2 id="impTitle"></h2>
+      <div class="kpis">
+        <div class="kpi"><div class="l">Новых позиций</div><div class="v" id="impC">0</div></div>
+        <div class="kpi"><div class="l">Обновится</div><div class="v" id="impU">0</div></div>
+        <div class="kpi"><div class="l">Без изменений</div><div class="v" id="impN">0</div></div>
+        <div class="kpi"><div class="l">Строк с ошибками</div><div class="v" id="impE">0</div></div>
+      </div>
+      <div class="soft" id="impCols"></div>
+      <ul class="errs" id="impErrs" hidden></ul>
+      <div class="scroll" id="impTable" hidden>
+        <table>
+          <thead><tr><th>Строка</th><th>Артикул</th><th>Название</th><th>Что будет</th></tr></thead>
+          <tbody id="impRows"></tbody>
+        </table>
+      </div>
+      <div class="imp-apply">
+        <button class="primary" id="impApply" hidden>Применить</button>
+        <span class="soft" id="impNote"></span>
+      </div>
+    </section>
+  </div>
 </main>
 
 <script>
@@ -147,15 +195,20 @@ const FLOW = { NEW: ['PACKING', 'В сборку'], PACKING: ['SHIPPED', 'Отг
 
 let orders = [], stats = {}, fCh = 'all', fSt = 'all';
 let token = null;   // только в памяти страницы: перезагрузка — новый вход
+let pending = null; // проверенный файл импорта: { name, type, text }, ждёт подтверждения
 
-/** Экран кабинета: gate — форма входа, foreign — чужой экземпляр, board — заказы. */
+/** Экран кабинета: gate — вход, foreign — чужой экземпляр, board — заказы, import — импорт. */
 function show(view, msg, bad) {
-  if (view !== 'board') { orders = []; stats = {}; $('rows').innerHTML = ''; }
+  if (view === 'gate' || view === 'foreign') { orders = []; stats = {}; $('rows').innerHTML = ''; resetImport(); }
   if (view === 'gate') token = null;
   $('gate').hidden = view !== 'gate';
   $('foreign').hidden = view !== 'foreign';
   $('board').hidden = view !== 'board';
+  $('importView').hidden = view !== 'import';
   $('reload').hidden = view !== 'board';
+  $('navOrders').hidden = $('navImport').hidden = view !== 'board' && view !== 'import';
+  $('navOrders').setAttribute('aria-pressed', view === 'board');
+  $('navImport').setAttribute('aria-pressed', view === 'import');
   $('logout').hidden = $('who').hidden = !token;
   if (view === 'gate') {
     $('gateMsg').hidden = !msg; $('gateMsg').textContent = msg || '';
@@ -167,7 +220,7 @@ function show(view, msg, bad) {
 /** Запрос кабинета: токен уходит заголовком, 401 — снова вход, 403 — чужой экземпляр. */
 async function api(path, opts) {
   opts = opts || {};
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers);
   if (token) headers.Authorization = 'Bearer ' + token;
   const r = await fetch(API + path, Object.assign({}, opts, { headers }));
   if (r.status === 401) { show('gate', 'Сессия истекла или вход не выполнен. Войдите снова.'); return null; }
@@ -233,6 +286,67 @@ async function load() {
   orders = d.orders; stats = d.stats; show('board'); render();
 }
 
+/* ---------- импорт каталога ---------- */
+
+function resetImport() {
+  pending = null;
+  $('impFile').value = ''; $('impCheck').disabled = true; $('impResult').hidden = true;
+}
+
+/** Файл из Excel бывает в Windows-1251: если не UTF-8 — читаем так. */
+async function readFile(file) {
+  const buf = await file.arrayBuffer();
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+  catch { return new TextDecoder('windows-1251').decode(buf); }
+}
+
+const fmt = v => Array.isArray(v) ? v.join(', ') : (v === undefined || v === null || v === '' ? '—' : String(v));
+
+function renderImport(d) {
+  $('impResult').hidden = false;
+  if (d.error) {
+    $('impTitle').textContent = 'Файл не принят';
+    ['impC', 'impU', 'impN', 'impE'].forEach(id => $(id).textContent = '—');
+    $('impCols').textContent = ''; $('impTable').hidden = true; $('impApply').hidden = true;
+    $('impErrs').hidden = false; $('impErrs').innerHTML = '<li>' + esc(d.message || d.error) + '</li>';
+    $('impNote').textContent = 'Исправьте файл и проверьте снова.';
+    return;
+  }
+  const s = d.summary, writes = s.created + s.updated;
+  $('impTitle').textContent = d.dryRun ? 'Предпросмотр: ' + pending.name
+    : d.applied ? 'Импорт выполнен: создано ' + s.created + ', обновлено ' + s.updated : 'Изменений нет — каталог уже такой';
+  $('impC').textContent = s.created; $('impU').textContent = s.updated;
+  $('impN').textContent = s.unchanged; $('impE').textContent = new Set(d.errors.map(e => e.line)).size;
+  $('impCols').innerHTML = 'Колонки: ' + d.columns.recognized.map(c => esc(c.header) + ' → ' + esc(c.title)).join(', ') +
+    (d.columns.created.length ? '. <b>Новые поля:</b> ' + d.columns.created.map(esc).join(', ') : '');
+  $('impErrs').hidden = !d.errors.length;
+  $('impErrs').innerHTML = d.errors.map(e => '<li>' + esc(e.message) + '</li>').join('');
+  const rows = d.created.map(c => '<tr><td class="soft">' + c.line + '</td><td class="oid">' + esc(c.id) + '</td><td>' + esc(c.title) +
+      '</td><td><span class="tag new">новая</span></td></tr>')
+    .concat(d.updated.map(u => '<tr><td class="soft">' + u.line + '</td><td class="oid">' + esc(u.id) + '</td><td>' + esc(u.title) +
+      '</td><td class="chg">' + u.changes.map(c => esc(c.title) + ': <s>' + esc(fmt(c.from)) + '</s> → ' + esc(fmt(c.to))).join('<br>') + '</td></tr>'));
+  $('impTable').hidden = !rows.length;
+  $('impRows').innerHTML = rows.join('');
+  $('impApply').hidden = !d.dryRun || !writes;
+  $('impApply').textContent = 'Применить: ' + writes + ' ' + (writes === 1 ? 'позиция' : writes < 5 ? 'позиции' : 'позиций');
+  $('impNote').textContent = d.dryRun
+    ? (!writes ? 'Применять нечего.' : d.errors.length ? 'Строки с ошибками будут пропущены.' : 'Ничего не записано, пока не нажмёте «Применить».')
+    : '';
+  if (!d.dryRun) { pending = null; $('impFile').value = ''; $('impCheck').disabled = true; }
+}
+
+async function runImport(dryRun) {
+  const d = await api('/api/catalog/import' + (dryRun ? '?dryRun=1' : ''), {
+    method: 'POST', headers: { 'Content-Type': pending.type + '; charset=utf-8' }, body: pending.text
+  });
+  if (d) renderImport(d);
+}
+
+$('impFile').addEventListener('change', () => {
+  pending = null; $('impResult').hidden = true;
+  $('impCheck').disabled = !$('impFile').files.length;
+});
+
 $('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
   $('lBtn').disabled = true;
@@ -262,7 +376,18 @@ document.addEventListener('click', async e => {
     });
     return d && load();
   }
-  if (b.id === 'reload') return load();
+  if (b.id === 'reload' || b.id === 'navOrders') return load();
+  if (b.id === 'navImport') return show('import');
+  if (b.id === 'impCheck') {
+    const f = $('impFile').files[0]; if (!f) return;
+    b.disabled = true;
+    try {
+      pending = { name: f.name, type: /\.json$/i.test(f.name) ? 'application/json' : 'text/csv', text: await readFile(f) };
+      await runImport(true);
+    } finally { b.disabled = false; }
+    return;
+  }
+  if (b.id === 'impApply' && pending) { b.disabled = true; try { await runImport(false); } finally { b.disabled = false; } return; }
   if (b.id === 'logout' || b.id === 'switch') return show('gate');
 });
 
