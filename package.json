@@ -8,5 +8,5 @@
     "test": "node --test tests/unit/*.test.js",
     "build:web": "bash web/build.sh"
   },
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=22" }
 }
