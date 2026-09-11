@@ -11,6 +11,9 @@
  *
  * Вид позиции (kind): обычный товар (item) или набор (bundle). У набора — состав
  * [{id, qty}] и своя заданная цена, своего остатка нет.
+ *
+ * Медиа: photos — внешние адреса (своего хранилища файлов нет). Нет фото —
+ * запасной вариант: эмодзи позиции или первая буква названия, а не пустота.
  */
 const fs = require('fs');
 const path = require('path');
@@ -35,6 +38,16 @@ const normalize = it => Object.assign({
 }, it);
 const isBundle = p => !!p && p.kind === 'bundle';
 const titleOf = id => (byId(id) || {}).title || id;
+
+/** Фото и запасной вариант. Вызывающий никогда не получает «ничего». */
+function media(p) {
+  const photos = (Array.isArray(p.photos) ? p.photos : []).filter(Boolean);
+  const emoji = String(p.emoji || '').trim();
+  return {
+    photos,
+    fallback: emoji ? { kind: 'emoji', value: emoji } : { kind: 'letter', value: (String(p.title || p.id).trim().charAt(0) || '?').toUpperCase() }
+  };
+}
 
 function all() {
   if (cache) return cache;
@@ -81,8 +94,33 @@ function forChannel(channelCode) {
     category: p.category || '', categoryTitle: p.categoryTitle || p.category || '',
     description: p.description || '', features: p.features || [],
     rating: p.rating || 0, reviews: p.reviews || 0,
+    photos: media(p).photos, fallback: media(p).fallback,
     available: stock.availableStock(p, channelCode)
   }));
+}
+
+/**
+ * Карточка позиции для отдельной страницы витрины: витринные поля, состав
+ * (ингредиенты), характеристики и компоненты набора со ссылками на них.
+ * Нет позиции — ошибка NOT_FOUND, а не пустой объект.
+ */
+function product(id, channelCode) {
+  const p = byId(id);
+  if (!p) { const e = new Error('NOT_FOUND'); e.code = 'NOT_FOUND'; e.id = id; throw e; }
+  const view = forChannel(channelCode).find(x => x.id === p.id);
+  const specs = [['Вес', p.weight], ['Единица', p.unit], ['Категория', p.categoryTitle || p.category]]
+    .concat(Object.entries(p.attrs || {}))
+    .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
+    .map(([name, value]) => ({ name, value: String(value) }));
+  return Object.assign(view, {
+    composition: p.composition || '',
+    specs,
+    components: isBundle(p) ? p.components.map(c => {
+      const cp = byId(c.id);
+      return { id: c.id, title: titleOf(c.id), qty: c.qty, url: '?id=' + encodeURIComponent(c.id),
+        fallback: cp ? media(cp).fallback : null, photo: cp ? media(cp).photos[0] || null : null };
+    }) : undefined
+  });
 }
 
 /** Ступенчатая скидка за количество — пороги из конфигурации. */
@@ -139,4 +177,4 @@ function expand(lines) {
 
 function reset() { cache = null; }
 
-module.exports = { all, byId, categories, forChannel, quote, expand, discountPct, init, save, reset, file };
+module.exports = { all, byId, categories, forChannel, product, media, quote, expand, discountPct, init, save, reset, file };

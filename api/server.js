@@ -83,6 +83,12 @@ const routes = {
     } catch (e) { json(res, 400, { error: e.code || 'BAD_REQUEST' }); }
   },
 
+  // Карточка для страницы витрины ?id=…: прямая ссылка и кнопка «назад» работают.
+  'GET /api/product': (req, res, query) => {
+    try { json(res, 200, catalog.product(query.get('id'), query.get('channel') || 'SITE')); }
+    catch (e) { json(res, e.code === 'NOT_FOUND' ? 404 : 400, { error: e.code || 'BAD_REQUEST', id: e.id }); }
+  },
+
   'POST /api/cart/quote': (req, res, query, body) => {
     try { json(res, 200, catalog.quote(body.items, body.channel || 'SITE')); }
     catch (e) { json(res, 409, { error: e.code || 'BAD_REQUEST', id: e.id, available: e.available }); }

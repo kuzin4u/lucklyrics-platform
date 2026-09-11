@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Сборка витрины и кабинета: подстановка адреса API вместо плейсхолдера.
+# Сборка витрины, кабинета и юридических страниц в web/dist.
+# Оформление и метки для поисковиков — из конфигурации (api/lib/site.js).
 set -e
+cd "$(dirname "$0")"
 
 if [ -z "$API_URL" ] && [ -n "$API_HOST" ]; then
   API_URL="https://${API_HOST}.onrender.com"
@@ -8,18 +10,4 @@ if [ -z "$API_URL" ] && [ -n "$API_HOST" ]; then
 fi
 echo "API_URL=${API_URL:-НЕ ЗАДАН}"
 
-safe_replace() {
-  local placeholder="$1" value="$2" file="$3"
-  if [ -f "$file" ] && [ -n "$value" ]; then
-    local escaped
-    escaped=$(printf '%s\n' "$value" | sed 's/[&/\]/\\&/g')
-    sed -i.bak "s|${placeholder}|${escaped}|g" "$file" && rm -f "$file.bak"
-    echo "  → $file"
-  fi
-}
-
-cp index.template.html index.html
-cp cabinet.template.html cabinet.html
-safe_replace "__API_URL__" "$API_URL" "index.html"
-safe_replace "__API_URL__" "$API_URL" "cabinet.html"
-echo "Сборка завершена: index.html, cabinet.html"
+API_URL="$API_URL" node ../api/scripts/build-web.js

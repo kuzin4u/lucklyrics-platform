@@ -32,8 +32,13 @@ services:
     runtime: static
     rootDir: web
     buildCommand: bash build.sh
-    staticPublishPath: .
+    staticPublishPath: dist
     envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # сборка читает тот же конфиг бренда, что и API: заголовки, реквизиты, тема
+      - key: BRAND_CONFIG
+        value: config/brand.json
       - key: API_HOST
         fromService:
           type: web

@@ -83,7 +83,7 @@ function publicConfig(cfg) {
   return {
     theme: brand.theme(c),
     texts: c.texts || {},
-    legal: c.legal || {},
+    legal: require('./site').legalLinks(c),   // только ссылки: реквизиты — на самих страницах
     currency: c.catalog.currency,
     discountTiers: c.catalog.discountTiers,
     channels: c.channels.filter(x => x.enabled).map(x => ({ code: x.code, title: x.title })),

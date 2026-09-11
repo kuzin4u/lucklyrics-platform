@@ -41,11 +41,12 @@ const COLUMNS = {
   emoji:            ['emoji', 'эмодзи'],
   description:      ['description', 'desc', 'описание'],
   features:         ['features', 'особенности', 'преимущества'],
-  photos:           ['photos', 'фотографии', 'галерея', 'photo', 'фото'],
+  photos:           ['photos', 'images', 'фотографии', 'изображения', 'галерея', 'photo', 'image', 'фото', 'изображение', 'картинки'],
+  composition:      ['composition', 'состав', 'ингредиенты'],
   rating:           ['rating', 'рейтинг', 'оценка'],
   reviews:          ['reviews', 'отзывы', 'кол-во отзывов'],
   buffer:           ['buffer', 'страховой запас', 'буфер'],
-  // не «состав»: у продавцов еды так называется колонка ингредиентов
+  // «Состав» — ингредиенты (composition), состав набора — отдельная колонка
   components:       ['components', 'состав набора', 'комплект', 'bundle']
 };
 const STOCK_FIELDS = ['stock', 'marketplaceStock'];
@@ -55,7 +56,7 @@ const TITLES = {
   marketplaceStock: 'остаток площадки', fulfillment: 'схема исполнения', category: 'категория',
   categoryTitle: 'название категории', unit: 'единица', weight: 'вес', emoji: 'эмодзи',
   description: 'описание', features: 'особенности', photos: 'фотографии', rating: 'рейтинг', reviews: 'отзывы',
-  buffer: 'страховой запас', components: 'состав набора', kind: 'вид'
+  buffer: 'страховой запас', components: 'состав набора', kind: 'вид', composition: 'состав'
 };
 
 function fail(code, message, extra) {
@@ -170,6 +171,14 @@ const count = title => v => {
 const text = v => String(v).trim();
 const list = v => (Array.isArray(v) ? v.map(String) : String(v).split('|')).map(s => s.trim()).filter(Boolean);
 
+/** Фото: внешние адреса через | или перевод строки. Своего хранилища файлов нет. */
+function photos(v) {
+  const urls = (Array.isArray(v) ? v.map(String) : String(v).split(/[|\s]+/)).map(s => s.trim()).filter(Boolean);
+  const bad = urls.find(u => !/^https?:\/\/[^\s"'<>]+$/i.test(u) && !/^\/[^\s"'<>]*$/.test(u));
+  if (bad) throw 'фотографии: ' + shown(bad) + ' — нужен адрес вида https://… или /путь';
+  return urls;
+}
+
 /** Состав набора: «SKU-001×2|SKU-003×1», множитель — × или *, без него — 1. */
 function components(v) {
   const parts = Array.isArray(v) ? v : String(v).split('|');
@@ -199,7 +208,7 @@ const PARSE = {
   stock: count('остаток'), marketplaceStock: count('остаток площадки'), reviews: count('отзывы'),
   rating: v => { const n = number(v); if (Number.isNaN(n) || n < 0 || n > 5) throw 'рейтинг — нужно число от 0 до 5 (' + shown(v) + ')'; return n; },
   fulfillment: v => { const s = String(v).trim().toUpperCase(); if (s !== 'FBS' && s !== 'FBO') throw 'схема исполнения — FBS или FBO (' + shown(v) + ')'; return s; },
-  features: list, photos: list, buffer: count('страховой запас'), components
+  features: list, photos, composition: text, buffer: count('страховой запас'), components
 };
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);

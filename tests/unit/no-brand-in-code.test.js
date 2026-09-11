@@ -10,7 +10,8 @@ const path = require('path');
 const config = require('../../api/lib/config');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const SKIP_DIRS = new Set(['node_modules', '.git', 'config', 'tests']);
+// dist — собранная статика: бренд в ней есть по назначению, проверяются шаблоны
+const SKIP_DIRS = new Set(['node_modules', '.git', 'config', 'tests', 'dist', 'data']);
 
 function walk(dir, acc) {
   acc = acc || [];

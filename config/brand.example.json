@@ -123,7 +123,16 @@
     "offerUrl": "/legal/offer.html",
     "privacyUrl": "/legal/privacy.html",
     "returnsUrl": "/legal/returns.html",
-    "requisites": ""
+    "requisites": {
+      "inn": "",
+      "ogrn": "",
+      "address": ""
+    }
+  },
+  "seo": {
+    "title": "",
+    "description": "",
+    "image": ""
   },
   "texts": {
     "heroTitle": "",

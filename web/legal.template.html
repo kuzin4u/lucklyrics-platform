@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
+<meta name="robots" content="noindex">
+<style>
+:root{--accent:#7b2ff7;--accent-dark:#5f1fd6;--accent-light:#f0e9fe;--on-accent:#fff;--ink:#241a33;--soft:#6b5f7a;--rule:#e6def2;--paper:#f8f6fc;
+  --font-title:system-ui,sans-serif;--font-body:system-ui,sans-serif;--weight-title:800}
+{{THEME}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 var(--font-body);background:var(--paper);color:var(--ink);-webkit-font-smoothing:antialiased}
+header{background:#fff;border-bottom:1px solid var(--rule)}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px}
+header .wrap{display:flex;align-items:center;min-height:56px;gap:12px}
+header a{color:var(--ink);text-decoration:none;font:var(--weight-title) 17px var(--font-title);display:flex;align-items:center;min-height:44px}
+.draft{background:#fbf4e3;border:1px solid #eddcae;color:#6b5210;border-radius:12px;padding:12px 14px;margin:20px 0 8px;font-size:14px}
+h1{font:var(--weight-title) 26px/1.25 var(--font-title);margin:18px 0 6px}
+h2{font-size:18px;margin:26px 0 8px}
+.updated{color:var(--soft);font-size:13px}
+.todo{color:var(--soft);font-style:italic;background:#fff;border:1px dashed var(--rule);border-radius:10px;padding:10px 12px}
+.req{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--rule);border-radius:12px;overflow:hidden;font-size:15px}
+.req th,.req td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
+.req th{width:40%;color:var(--soft);font-weight:600}
+.missing{color:#a4243b}
+nav{display:flex;flex-direction:column;gap:2px;margin:32px 0 40px;padding-top:16px;border-top:1px solid var(--rule)}
+nav a{color:var(--accent-dark);min-height:44px;display:flex;align-items:center}
+@media(min-width:768px){h1{font-size:32px}nav{flex-direction:row;gap:24px}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><a href="/">← {{SHOP}}</a></div></header>
+<main class="wrap">
+  <div class="draft"><b>Черновик: требует проверки юристом.</b> Текст ниже — структура документа без формулировок. Перед запуском продаж его заменяет юрист продавца.</div>
+  <h1>{{H1}}</h1>
+  <div class="updated">Редакция от {{UPDATED}}</div>
+{{BODY}}
+  <nav aria-label="Документы">{{NAV}}</nav>
+</main>
+</body>
+</html>

@@ -5,3 +5,4 @@ config/brand.json
 data/
 index.html
 cabinet.html
+web/dist/
