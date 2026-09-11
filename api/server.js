@@ -179,7 +179,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  try { auth.assertConfigured(); }
+  // без секрета и без годного конфига бренда — не стартуем: это защита, а не сбой
+  try { config.load(); auth.assertConfigured(); }
   catch (e) { console.error('Сервер не запущен: ' + e.message); process.exit(1); }
   catalog.init().then(() => stock.init()).then(() => server.listen(PORT, () =>
     console.log('api on :' + PORT + ' · конфиг ' + config.load()._source + ' · хранилище ' + store.name())));

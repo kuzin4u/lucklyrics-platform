@@ -1,19 +1,32 @@
 # Развёртывание экземпляра платформы: серверный контур + статика витрины.
-# Оба сервиса из одного репозитория, витрина сама узнаёт адрес API.
+# Оба сервиса из одного репозитория. Инструкция — docs/deploy.md,
+# проверка после развёртывания — npm run smoke <адрес API>.
 services:
   - type: web
     name: platform-api
     runtime: node
-    rootDir: .
     plan: starter          # без сна: вебхуки площадки не должны упираться в холодный старт
     buildCommand: npm install
     startCommand: node api/server.js
     healthCheckPath: /api/health
+    # Данные экземпляра (заказы, продавцы, каталог, остаток) — на постоянном диске:
+    # остальная файловая система стирается при каждом развёртывании.
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: "24"
-      - key: BRAND_CONFIG
-        value: config/brand.json
+      - key: DATA_DIR
+        value: /var/data
+      # Без секрета API не стартует — это защита, а не сбой. Генерируется при создании.
+      - key: JWT_SECRET
+        generateValue: true
+      # Содержимое config/brand.json одной строкой — то же, что у platform-web.
+      - key: BRAND_CONFIG_JSON
+        sync: false
+      # Пустые ключи — сухой режим площадки и платежей, помощник выключен.
       - key: MARKETPLACE_CLIENT_ID
         sync: false
       - key: MARKETPLACE_API_KEY
@@ -24,23 +37,24 @@ services:
         sync: false
       - key: MODEL_API_KEY
         sync: false
-      - key: JWT_SECRET
-        sync: false
 
   - type: web
     name: platform-web
     runtime: static
-    rootDir: web
-    buildCommand: bash build.sh
-    staticPublishPath: dist
+    # rootDir не задаётся: сборке нужны api/ и config/, а файлы вне rootDir ей недоступны
+    buildCommand: bash web/build.sh
+    staticPublishPath: web/dist      # от корня репозитория
     envVars:
       - key: NODE_VERSION
         value: "24"
-      # сборка читает тот же конфиг бренда, что и API: заголовки, реквизиты, тема
-      - key: BRAND_CONFIG
-        value: config/brand.json
+      # Тот же конфиг бренда, что у API: заголовки, Open Graph, реквизиты, тема.
+      - key: BRAND_CONFIG_JSON
+        sync: false
+      # Адрес API собирается из имени сервиса; при своём домене — задать API_URL.
       - key: API_HOST
         fromService:
           type: web
           name: platform-api
           property: host
+      - key: API_URL
+        sync: false

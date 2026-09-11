@@ -8,6 +8,14 @@
  *
  * Файлы: config/brand.json — активный, config/brand.<slug>.json — конфиги
  * других продавцов для режима предпросмотра.
+ *
+ * Источник активного конфига, по порядку:
+ *   BRAND_CONFIG_JSON — содержимое целиком (площадка размещения: переменная
+ *                       доступна и сборке статики, и серверу);
+ *   BRAND_CONFIG      — путь к файлу;
+ *   config/brand.json, а если его нет — brand.example.json (только разработка).
+ * Источник задан явно, но негоден — отказ при старте, а не тихая подстановка
+ * примера: иначе вместо магазина продавца поднимается демонстрационный.
  */
 const fs = require('fs');
 const path = require('path');
@@ -30,10 +38,24 @@ function read(file) {
   return cfg;
 }
 
+function fromEnvJson(text) {
+  let raw;
+  try { raw = JSON.parse(text); }
+  catch (e) { throw new Error('BRAND_CONFIG_JSON: не разобран JSON — ' + e.message); }
+  schema.assertValid(raw, 'BRAND_CONFIG_JSON');
+  const cfg = { ...raw, _source: 'env:BRAND_CONFIG_JSON' };
+  cfg.channelByCode = Object.fromEntries((cfg.channels || []).map(c => [c.code, c]));
+  return cfg;
+}
+
 function load() {
   if (cache.has('active')) return cache.get('active');
-  const file = fs.existsSync(CONFIG_PATH) ? CONFIG_PATH : FALLBACK_PATH;
-  const cfg = read(file);
+  let cfg;
+  if (process.env.BRAND_CONFIG_JSON) cfg = fromEnvJson(process.env.BRAND_CONFIG_JSON);
+  else if (process.env.BRAND_CONFIG) {
+    if (!fs.existsSync(CONFIG_PATH)) throw new Error('BRAND_CONFIG: нет файла ' + CONFIG_PATH);
+    cfg = read(CONFIG_PATH);
+  } else cfg = read(fs.existsSync(CONFIG_PATH) ? CONFIG_PATH : FALLBACK_PATH);
   cache.set('active', cfg);
   return cfg;
 }

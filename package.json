@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node api/server.js",
     "test": "node --test tests/unit/*.test.js",
-    "build:web": "bash web/build.sh"
+    "build:web": "bash web/build.sh",
+    "smoke": "node api/scripts/smoke.js"
   },
   "engines": { "node": ">=22" }
 }

@@ -56,4 +56,4 @@
 `bash web/build.sh` → `api/scripts/build-web.js` → `web/dist`: `index.html`,
 `cabinet.html`, `legal/*.html`, `assets/`. Шаблоны бренда не содержат, собранное —
 содержит, поэтому `dist` не в git и не проверяется тестом бренда. На площадке
-размещения статика публикует `dist`; сборке нужен тот же конфиг бренда, что и API.
+статика публикует `web/dist`; сборке нужен тот же `BRAND_CONFIG_JSON`, что и API (`docs/deploy.md`).
