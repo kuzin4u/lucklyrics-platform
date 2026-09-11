@@ -2,3 +2,6 @@ node_modules/
 .env
 config/brand.json
 *.log
+data/
+index.html
+cabinet.html

@@ -8,9 +8,5 @@
     "test": "node --test tests/unit/*.test.js",
     "build:web": "bash web/build.sh"
   },
-<<<<<<< HEAD
   "engines": { "node": ">=22" }
-=======
-  "engines": { "node": ">=20" }
->>>>>>> Каркас платформы: конфигурация, брендирование, платёжный слой, клиент площадки
 }

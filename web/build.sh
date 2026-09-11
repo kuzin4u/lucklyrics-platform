@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Сборка витрины: подстановка адреса API вместо плейсхолдера.
+# Сборка витрины и кабинета: подстановка адреса API вместо плейсхолдера.
 set -e
 
 if [ -z "$API_URL" ] && [ -n "$API_HOST" ]; then
@@ -13,11 +13,13 @@ safe_replace() {
   if [ -f "$file" ] && [ -n "$value" ]; then
     local escaped
     escaped=$(printf '%s\n' "$value" | sed 's/[&/\]/\\&/g')
-    sed -i "s|${placeholder}|${escaped}|g" "$file"
+    sed -i.bak "s|${placeholder}|${escaped}|g" "$file" && rm -f "$file.bak"
     echo "  → $file"
   fi
 }
 
 cp index.template.html index.html
+cp cabinet.template.html cabinet.html
 safe_replace "__API_URL__" "$API_URL" "index.html"
-echo "Сборка завершена."
+safe_replace "__API_URL__" "$API_URL" "cabinet.html"
+echo "Сборка завершена: index.html, cabinet.html"

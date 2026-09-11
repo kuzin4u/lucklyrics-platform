@@ -1,0 +1,30 @@
+{
+  "_note": "Демонстрационный каталог экземпляра. Заменяется каталогом продавца при внедрении.",
+  "items": [
+    { "id": "SKU-001", "title": "Позиция первая", "emoji": "🟣", "price": 390, "oldPrice": 450, "stock": 12,
+      "unit": "шт", "weight": "35 г", "category": "CAT-A", "categoryTitle": "Категория А",
+      "rating": 4.8, "reviews": 312, "description": "Описание позиции приходит из каталога продавца.",
+      "features": ["Признак один", "Признак два", "Признак три"] },
+    { "id": "SKU-002", "title": "Позиция вторая", "emoji": "🟢", "price": 355, "oldPrice": 0, "stock": 8,
+      "unit": "шт", "weight": "35 г", "category": "CAT-A", "categoryTitle": "Категория А",
+      "rating": 4.7, "reviews": 651, "description": "Описание позиции приходит из каталога продавца.",
+      "features": ["Признак один", "Признак два"] },
+    { "id": "SKU-003", "title": "Позиция третья", "emoji": "🔵", "price": 413, "oldPrice": 480, "stock": 5,
+      "unit": "шт", "weight": "35 г", "category": "CAT-B", "categoryTitle": "Категория Б",
+      "rating": 4.9, "reviews": 128, "description": "Описание позиции приходит из каталога продавца.",
+      "features": ["Признак один"] },
+    { "id": "SKU-004", "title": "Позиция четвёртая", "emoji": "🟠", "price": 236, "oldPrice": 0, "stock": 20,
+      "unit": "шт", "weight": "25 г", "category": "CAT-B", "categoryTitle": "Категория Б",
+      "rating": 4.6, "reviews": 31, "description": "Описание позиции приходит из каталога продавца.",
+      "features": [] },
+    { "id": "SKU-005", "title": "Позиция пятая", "emoji": "🟡", "price": 598, "oldPrice": 690, "stock": 3,
+      "unit": "шт", "weight": "50 г", "category": "CAT-C", "categoryTitle": "Категория В",
+      "rating": 0, "reviews": 0, "description": "Новая позиция без отзывов.",
+      "features": ["Признак один", "Признак два"] },
+    { "id": "SKU-006", "title": "Позиция шестая, на складе площадки", "emoji": "⚪", "price": 445, "oldPrice": 0,
+      "stock": 0, "marketplaceStock": 40, "fulfillment": "FBO",
+      "unit": "шт", "weight": "35 г", "category": "CAT-C", "categoryTitle": "Категория В",
+      "rating": 4.5, "reviews": 12, "description": "Исполняется со склада площадки: на витрине не продаётся.",
+      "features": [] }
+  ]
+}
