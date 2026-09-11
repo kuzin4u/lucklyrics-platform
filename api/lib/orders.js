@@ -74,8 +74,8 @@ async function create({ items, customer, channel, settlement }) {
 const allOrders = () => load();
 const byId = id => load().find(o => o.id === id) || null;
 
-/** Следующий статус по потоку. Возврат остатка при отмене. */
-function advance(id, to) {
+/** Следующий статус по потоку. Возврат остатка при отмене. by — кто перевёл, из токена. */
+function advance(id, to, by) {
   const o = byId(id);
   if (!o) { const e = new Error('ORDER_NOT_FOUND'); e.code = 'ORDER_NOT_FOUND'; throw e; }
   const next = to || FLOW[o.status];
@@ -84,7 +84,9 @@ function advance(id, to) {
     const ch = config.channel(o.channel);
     if (ch.ownStock) for (const l of o.items) stock.release(catalog.byId(l.id), l.qty);
   }
-  o.status = next; o.statusTitle = TITLES[next]; save();
+  o.status = next; o.statusTitle = TITLES[next];
+  o.history = (o.history || []).concat({ at: new Date().toISOString(), status: next, by: by || null });
+  save();
   return o;
 }
 

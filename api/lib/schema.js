@@ -9,6 +9,7 @@
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
 const RULES = [
+  ['instance.id',                v => typeof v === 'string' && /^[a-z0-9][a-z0-9-]{0,40}$/.test(v), 'идентификатор экземпляра: латиница, цифры, дефис'],
   ['brand.name',                 v => typeof v === 'string' && v.trim().length >= 2, 'непустая строка от двух символов'],
   ['brand.domain',               v => typeof v === 'string' && /^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(v), 'домен вида example.ru'],
   ['brand.palette.accent',       v => HEX.test(String(v)), 'цвет вида #RRGGBB'],

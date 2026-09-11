@@ -8,8 +8,9 @@
 ```bash
 cp config/brand.example.json config/brand.json   # заполнить под продавца
 cp .env.example .env                              # секреты, в репозиторий не попадают
-npm test                                          # 20 проверок, ни одной зависимости
-npm start                                          # http://localhost:3000/api/health
+npm test                                          # 59 проверок, ни одной зависимости
+node api/scripts/add-seller.js <логин> <пароль>    # продавец для кабинета
+JWT_SECRET=<от 32 символов> npm start              # http://localhost:3000/api/health
 ```
 
 Витрина: `bash web/build.sh` подставляет адрес API и собирает `index.html`.
@@ -26,6 +27,7 @@ api/lib/brand.js           слой брендирования: палитра, 
 api/lib/stock.js           единственная точка чтения остатка
 api/lib/payments/          адаптеры: интерфейс из четырёх операций
 api/lib/marketplace/       клиент площадки с режимом сухого прогона
+api/lib/auth.js            вход в кабинет: scrypt, токен HMAC-SHA256, защита записи
 api/server.js              каркас: живость, тема, публичный конфиг, журнал намерений
 web/assets/                логотип и фавикон экземпляра
 web/                       статика витрины, сборка подставляет адрес API
@@ -67,7 +69,7 @@ tests/unit/                проверки и инварианты, запус�
 ## Работа без боевого ключа площадки
 
 Клиент площадки по умолчанию в режиме сухого прогона: запросы не уходят,
-намерения пишутся в журнал (`GET /api/marketplace/journal`). Так синхронизация
+намерения пишутся в журнал (`GET /api/marketplace/journal`, после входа в кабинет). Так синхронизация
 разрабатывается и проверяется до получения доступа.
 
 Включение боевого режима: задать `MARKETPLACE_CLIENT_ID` и `MARKETPLACE_API_KEY`

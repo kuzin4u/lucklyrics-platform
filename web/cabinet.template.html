@@ -65,6 +65,17 @@ tr:hover td{background:#fdfcff}
 .rowbtn:hover{border-color:var(--accent);color:var(--accent-dark)}
 .rowbtn.cancel{color:var(--bad)}
 .empty{padding:34px;text-align:center;color:var(--soft)}
+[hidden]{display:none!important}
+.gate{max-width:380px;margin:48px auto}
+.gate label{display:block;font-size:12.5px;color:var(--soft);font-weight:600;margin:12px 0 4px}
+.gate input{width:100%;border:1px solid var(--rule);border-radius:9px;padding:10px 12px;font:inherit;color:var(--ink);background:#fff}
+.gate input:focus{border-color:var(--accent);outline:none}
+.gate p{margin:0 0 8px;color:var(--soft)}
+.primary{margin-top:16px;width:100%;border:0;border-radius:10px;padding:11px;background:var(--accent);color:var(--on-accent);font-weight:700;font-size:14px;cursor:pointer}
+.primary:disabled{opacity:.6;cursor:default}
+.note{margin-top:12px;font-size:13px;border-radius:9px;padding:9px 12px;background:var(--warn-l);color:var(--warn)}
+.note.bad{background:var(--bad-l);color:var(--bad)}
+header .who{align-self:center;font-size:12.5px;color:var(--soft)}
 </style>
 </head>
 <body>
@@ -73,12 +84,33 @@ tr:hover td{background:#fdfcff}
   <span class="mark" id="mark">·</span>
   <span><b id="brandName">Кабинет</b><small id="brandTagline">управление заказами</small></span>
   <span class="right">
+    <span class="who" id="who" hidden></span>
     <a class="ghost" href="index.html">Открыть витрину</a>
-    <button class="ghost" id="reload">Обновить</button>
+    <button class="ghost" id="reload" hidden>Обновить</button>
+    <button class="ghost" id="logout" hidden>Выйти</button>
   </span>
 </header>
 
 <main>
+  <section class="panel gate" id="gate">
+    <h2>Вход в кабинет</h2>
+    <form id="loginForm">
+      <label for="lLogin">Логин</label>
+      <input id="lLogin" name="username" autocomplete="username" required>
+      <label for="lPass">Пароль</label>
+      <input id="lPass" name="password" type="password" autocomplete="current-password" required>
+      <button class="primary" id="lBtn" type="submit">Войти</button>
+    </form>
+    <div class="note" id="gateMsg" role="alert" hidden></div>
+  </section>
+
+  <section class="panel gate" id="foreign" hidden>
+    <h2>Чужой экземпляр</h2>
+    <p>Этот вход принадлежит другому магазину платформы. Заказы этого магазина ему недоступны.</p>
+    <button class="primary" id="switch">Войти другим продавцом</button>
+  </section>
+
+  <div id="board" hidden>
   <div class="kpis">
     <div class="kpi"><div class="l">Заказов</div><div class="v" id="kOrders">—</div></div>
     <div class="kpi"><div class="l">Выручка</div><div class="v" id="kRevenue">—</div></div>
@@ -101,15 +133,48 @@ tr:hover td{background:#fdfcff}
     </div>
     <div class="soft" id="foot" style="margin-top:12px"></div>
   </section>
+  </div>
 </main>
 
 <script>
 const API = "__API_URL__".startsWith("__API") ? "" : "__API_URL__";
 const $ = id => document.getElementById(id);
 const rub = n => Math.round(n).toLocaleString('ru-RU') + ' \u20BD';
+// данные покупателя приходят с витрины — в разметку только через экранирование
+const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const NO_SECRET = 'Вход на сервере не настроен: не задан JWT_SECRET.';
 const FLOW = { NEW: ['PACKING', 'В сборку'], PACKING: ['SHIPPED', 'Отгрузить'], SHIPPED: ['DONE', 'Доставлен'] };
 
 let orders = [], stats = {}, fCh = 'all', fSt = 'all';
+let token = null;   // только в памяти страницы: перезагрузка — новый вход
+
+/** Экран кабинета: gate — форма входа, foreign — чужой экземпляр, board — заказы. */
+function show(view, msg, bad) {
+  if (view !== 'board') { orders = []; stats = {}; $('rows').innerHTML = ''; }
+  if (view === 'gate') token = null;
+  $('gate').hidden = view !== 'gate';
+  $('foreign').hidden = view !== 'foreign';
+  $('board').hidden = view !== 'board';
+  $('reload').hidden = view !== 'board';
+  $('logout').hidden = $('who').hidden = !token;
+  if (view === 'gate') {
+    $('gateMsg').hidden = !msg; $('gateMsg').textContent = msg || '';
+    $('gateMsg').className = 'note' + (bad ? ' bad' : '');
+    $('lPass').value = ''; $('lLogin').focus();
+  }
+}
+
+/** Запрос кабинета: токен уходит заголовком, 401 — снова вход, 403 — чужой экземпляр. */
+async function api(path, opts) {
+  opts = opts || {};
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const r = await fetch(API + path, Object.assign({}, opts, { headers }));
+  if (r.status === 401) { show('gate', 'Сессия истекла или вход не выполнен. Войдите снова.'); return null; }
+  if (r.status === 403) { show('foreign'); return null; }
+  if (r.status === 503) { show('gate', NO_SECRET, true); return null; }
+  return r.json();
+}
 
 function applyTheme(c) {
   const t = c.theme, p = t.palette, f = t.typography, s = document.documentElement.style;
@@ -149,7 +214,7 @@ function render() {
     const nx = FLOW[o.status];
     return '<tr>' +
       '<td><div class="oid">' + o.id + '</div><div class="soft">' + new Date(o.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + '</div></td>' +
-      '<td>' + (o.customer.name || '—') + '<div class="soft">' + (o.customer.phone || '') + '</div></td>' +
+      '<td>' + (esc(o.customer.name) || '—') + '<div class="soft">' + esc(o.customer.phone) + '</div></td>' +
       '<td class="soft" style="max-width:280px">' + o.items.map(i => i.title + ' \u00D7' + i.qty).join('; ') +
         (o.discount ? '<div>скидка \u2212' + o.discountPct + '%</div>' : '') + '</td>' +
       '<td><span class="tag">' + (o.channelTitle || o.channel) + '</span></td>' +
@@ -163,30 +228,50 @@ function render() {
 }
 
 async function load() {
-  const d = await (await fetch(API + '/api/orders')).json();
-  orders = d.orders; stats = d.stats; render();
+  const d = await api('/api/orders');
+  if (!d) return;
+  orders = d.orders; stats = d.stats; show('board'); render();
 }
+
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('lBtn').disabled = true;
+  try {
+    const r = await fetch(API + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: $('lLogin').value, password: $('lPass').value })
+    });
+    const d = await r.json();
+    if (!r.ok) return show('gate', r.status === 503 ? NO_SECRET : 'Неверный логин или пароль.', true);
+    token = d.token; $('who').textContent = d.seller.login;
+    await load();
+  } catch (err) {
+    show('gate', 'API недоступен: ' + err.message, true);
+  } finally {
+    $('lBtn').disabled = false;
+  }
+});
 
 document.addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.ch) { fCh = b.dataset.ch; return render(); }
   if (b.dataset.st) { fSt = b.dataset.st; return render(); }
   if (b.dataset.adv) {
-    await fetch(API + '/api/orders/status', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: b.dataset.adv, status: b.dataset.to })
+    const d = await api('/api/orders/status', {
+      method: 'POST', body: JSON.stringify({ id: b.dataset.adv, status: b.dataset.to })
     });
-    return load();
+    return d && load();
   }
   if (b.id === 'reload') return load();
+  if (b.id === 'logout' || b.id === 'switch') return show('gate');
 });
 
 (async () => {
   try {
     applyTheme(await (await fetch(API + '/api/config')).json());
-    await load();
+    show('gate');
   } catch (e) {
-    $('rows').innerHTML = '<tr><td colspan="7" class="empty">API недоступен: ' + e.message + '</td></tr>';
+    show('gate', 'API недоступен: ' + e.message, true);
   }
 })();
 </script>

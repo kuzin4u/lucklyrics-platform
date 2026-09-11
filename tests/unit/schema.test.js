@@ -35,6 +35,12 @@ test('сервис не поднимается на негодном конфи�
   assert.throws(() => schema.assertValid(bad, 'brand.test.json'), /не прошла проверку/);
 });
 
+test('без идентификатора экземпляра конфиг не проходит: к нему привязан вход в кабинет', () => {
+  const bad = clone(config.load());
+  delete bad.instance;
+  assert.match(schema.validate(bad).join('\n'), /instance\.id/);
+});
+
 test('повтор кодов каналов — ошибка', () => {
   const bad = clone(config.load());
   bad.channels.push(clone(bad.channels[0]));
