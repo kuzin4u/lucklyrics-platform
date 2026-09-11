@@ -91,6 +91,8 @@ async function scenario(api, r, opts, ctx) {
   r.check(/:dry$/.test(m.payments) ? 'ok' : 'warn', 'платежи: ' + m.payments + (/:dry$/.test(m.payments) ? '' : ' — тестовый заказ создаст неоплаченный платёж, он истечёт сам'));
   r.check(/example/.test(m.configSource) ? 'warn' : 'ok', 'конфиг бренда: ' + m.configSource + (/example/.test(m.configSource) ? ' — это пример, бренд продавца не подключён' : ''));
   if (m.storage === 'memory') r.check('warn', 'хранилище в памяти: данные пропадут при перезапуске');
+  // помощник модель не вызывает: каждое развёртывание тратило бы деньги и лимиты
+  r.check('ok', 'помощник витрины: ' + (m.agent === 'on' ? 'работает' : 'выключен (нет ключа или потолка — витрина без кнопки)'));
 
   // 2. витрина публична
   r.step('2. Витрина открыта покупателю');
@@ -113,7 +115,7 @@ async function scenario(api, r, opts, ctx) {
   for (const [method, route] of [['GET', '/api/orders'], ['POST', '/api/orders/status'], ['GET', '/api/stock/log'],
                                  ['POST', '/api/stock/adjust'], ['POST', '/api/catalog/import'],
                                  ['GET', '/api/sync/log'], ['POST', '/api/sync/run'], ['GET', '/api/sync/diff'],
-                                 ['POST', '/api/marketplace/orders'], ['POST', '/api/auth/password']]) {
+                                 ['POST', '/api/marketplace/orders'], ['POST', '/api/auth/password'], ['GET', '/api/agent/stats']]) {
     const x = await api(method, route, method === 'POST' ? { body: {} } : {});
     r.check(x.status === 401 ? 'ok' : 'fail', method + ' ' + route + ' → ' + x.status + (x.status === 401 ? '' : ' — ОТКРЫТО БЕЗ ВХОДА'));
   }

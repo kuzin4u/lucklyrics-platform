@@ -120,7 +120,10 @@
     "model": "claude-haiku-4-5-20251001",
     "autonomy": "mixed",
     "autoReplyMinScore": 4,
-    "knowledgeFile": "config/knowledge.md"
+    "knowledgeFile": "config/knowledge.md",
+    "maxMessagesPerDialog": 15,
+    "maxDialogsPerVisitorPerDay": 5,
+    "dailyBudgetUsd": 2
   },
   "legal": {
     "offerUrl": "/legal/offer.html",

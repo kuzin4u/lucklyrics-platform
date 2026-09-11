@@ -165,6 +165,28 @@ main{flex:1;padding-bottom:28px}
 .agree{font-size:13px;color:var(--soft);text-align:center}
 .agree a{color:var(--accent-dark)}
 
+/* ── помощник ──────────────────────────── */
+.fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:50;min-height:52px;border:none;border-radius:26px;
+  background:var(--accent);color:var(--on-accent);font-weight:700;font-size:15px;padding:0 18px 0 14px;display:flex;align-items:center;gap:8px;box-shadow:0 8px 24px rgba(36,26,51,.22)}
+.fab svg{width:22px;height:22px}
+body.buybar-on .fab{bottom:calc(84px + env(safe-area-inset-bottom))}
+.msgs{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:88%;padding:10px 13px;border-radius:14px;font-size:15px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word}
+.msg.me{align-self:flex-end;background:var(--accent);color:var(--on-accent);border-bottom-right-radius:4px}
+.msg.bot{align-self:flex-start;background:var(--paper);border:1px solid var(--rule);border-bottom-left-radius:4px}
+.msg.sys{align-self:center;background:#fbf4e3;color:#6b5210;font-size:14px;text-align:center}
+.msg a{color:var(--accent-dark)}
+.offer{align-self:stretch;border:1px solid var(--rule);border-radius:14px;padding:10px 12px;background:#fff;display:flex;flex-direction:column;gap:6px}
+.offer .it{display:flex;justify-content:space-between;gap:10px;font-size:14.5px}
+.offer .it a{text-decoration:none;min-height:32px;display:flex;align-items:center}
+.offer .tot{display:flex;justify-content:space-between;font-weight:800;border-top:1px solid var(--rule);padding-top:6px}
+.typing{align-self:flex-start;color:var(--soft);font-size:14px}
+.offer-holder{align-self:stretch}
+.composer{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--rule);background:#fff}
+.composer textarea{flex:1;min-height:48px;max-height:120px;resize:none;border:1px solid var(--rule);border-radius:12px;padding:12px;font:inherit;font-size:16px}
+.composer textarea:focus{border-color:var(--accent);outline:none}
+.composer .btn{width:auto;min-width:52px;padding:0 14px}
+
 /* ── подвал ────────────────────────────── */
 footer.bottom{border-top:1px solid var(--rule);background:#fff;padding:18px 0 calc(24px + env(safe-area-inset-bottom));font-size:14px;color:var(--soft)}
 footer.bottom nav{display:flex;flex-direction:column}
@@ -229,6 +251,22 @@ body.buybar-on footer.bottom{padding-bottom:calc(96px + env(safe-area-inset-bott
     <div class="pfoot" id="cartFoot"></div>
   </div>
 </div>
+<button class="fab" id="openChat" hidden aria-label="Помощник: подобрать товары">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+  <span>Подобрать</span>
+</button>
+<div class="overlay" id="chat" role="dialog" aria-modal="true" aria-labelledby="chatTitle" hidden>
+  <div class="backdrop" data-close-chat="1"></div>
+  <div class="panel">
+    <div class="phead"><h2 id="chatTitle">Помощник</h2><button class="x" id="closeChat" aria-label="Закрыть помощника">✕</button></div>
+    <div class="msgs" id="msgs" aria-live="polite"></div>
+    <form class="composer" id="chatForm">
+      <label class="sr" for="chatText">Сообщение помощнику</label>
+      <textarea id="chatText" rows="1" maxlength="1000" placeholder="Для кого, к какому поводу, на какой бюджет?"></textarea>
+      <button class="btn" id="chatSend" type="submit" aria-label="Отправить">➤</button>
+    </form>
+  </div>
+</div>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -277,7 +315,8 @@ function href(params) {
   const s = q.toString();
   return location.pathname + (s ? '?' + s : '');
 }
-const current = () => { const q = new URLSearchParams(location.search); return { id: q.get('id') || undefined, cart: q.has('cart') ? '1' : undefined }; };
+const current = () => { const q = new URLSearchParams(location.search);
+  return { id: q.get('id') || undefined, cart: q.has('cart') ? '1' : undefined, chat: q.has('chat') ? '1' : undefined }; };
 function navigate(params, opts) {
   if (!current().id) catalogScroll = window.scrollY;
   history[opts && opts.replace ? 'replaceState' : 'pushState'](Object.assign({ app: true }, opts && opts.state), '', href(params));
@@ -300,6 +339,7 @@ function applyConfig(c) {
   $('brandTagline').textContent = t.tagline || '';
   $('mark').innerHTML = t.logo.kind === 'image' ? '<img src="' + esc(t.logo.src) + '" alt="">' : esc(t.logo.letter);
   const l = c.legal || {};
+  $('openChat').hidden = !(cfg.agent && cfg.agent.enabled);
   $('footer').innerHTML =
     '<nav aria-label="Документы">' +
       [['offerUrl', 'Публичная оферта'], ['privacyUrl', 'Обработка персональных данных'], ['returnsUrl', 'Доставка и возврат']]
@@ -577,7 +617,7 @@ async function placeOrder() {
   if (Object.keys(errors).length) { renderCheckout(errors, v); $(Object.keys(errors)[0]).focus(); return; }
   $('placeOrder').disabled = true; $('placeOrder').textContent = 'Отправляем…';
   let r;
-  try { r = await post('/api/orders', { items: Object.keys(cart).map(id => ({ id, qty: cart[id] })), channel: 'SITE', customer: v }); }
+  try { r = await post('/api/orders', { items: Object.keys(cart).map(id => ({ id, qty: cart[id] })), channel: 'SITE', customer: v, agentDialogId: agentMark.get() || undefined }); }
   catch (e) { renderCheckout({ form: 'Не удалось отправить заказ: нет связи. Проверьте интернет и нажмите «Подтвердить» ещё раз.' }, v); return; }
   if (!r.ok) {
     if (r.body.error === 'NOT_ENOUGH_STOCK' || r.body.error === 'UNKNOWN_SKU') { checkout = null; items = null; return renderCart(); }
@@ -585,7 +625,7 @@ async function placeOrder() {
     return renderCheckout({ form: 'Заказ не принят. Попробуйте ещё раз через минуту.' }, v);
   }
   const o = r.body;
-  cart = {}; saveCart(); checkout = null; items = null;
+  cart = {}; saveCart(); checkout = null; items = null; agentMark.set(null);
   $('cartTitle').textContent = 'Заказ принят';
   $('cartBody').innerHTML = state('✅', esc((cfg && cfg.texts && cfg.texts.orderCreated) || 'Заказ принят') + ' — № ' + esc(o.id),
     o.qty + ' шт. на ' + money(o.total) + '. Продавец свяжется с вами, чтобы подтвердить заказ.');
@@ -593,6 +633,95 @@ async function placeOrder() {
 }
 
 const toast = t => { const e = $('toast'); e.textContent = t; e.classList.add('show'); clearTimeout(e._t); e._t = setTimeout(() => e.classList.remove('show'), 1800); };
+
+/* ---------- помощник ---------- */
+
+// посетитель — случайный идентификатор в браузере: для лимита диалогов, не для слежки
+const visitorId = (() => {
+  try {
+    let v = localStorage.getItem('visitor');
+    if (!v) { v = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem('visitor', v); }
+    return v;
+  } catch (e) { return undefined; }
+})();
+// диалог, чей состав положили в корзину, — заказ уйдёт с отметкой «с участием помощника»
+const agentMark = {
+  get() { try { return localStorage.getItem('agentDialog'); } catch (e) { return null; } },
+  set(v) { try { v ? localStorage.setItem('agentDialog', v) : localStorage.removeItem('agentDialog'); } catch (e) { /* без хранилища */ } }
+};
+const chat = { dialogId: null, offers: [], busy: false };
+
+function bubble(cls, html) {
+  const d = document.createElement('div');
+  d.className = cls; d.innerHTML = html;
+  $('msgs').appendChild(d);
+  $('msgs').scrollTop = $('msgs').scrollHeight;
+  return d;
+}
+function greet() {
+  bubble('msg bot', 'Расскажите, для кого и к какому поводу, на какой бюджет — подберу из каталога и положу в корзину. Сроки доставки, оплата и возврат — в документах магазина внизу страницы.');
+}
+function setChatOpen(open) {
+  const el = $('chat');
+  if (open === !el.hidden) return;
+  el.hidden = !open;
+  document.body.classList.toggle('lock', open || !$('cart').hidden);
+  if (open) { if (!$('msgs').children.length) greet(); $('toast').classList.remove('show'); $('chatText').focus(); }
+}
+function closeChat() {
+  if (history.state && history.state.chat) history.back();
+  else navigate({ id: current().id }, { replace: true });
+}
+
+function offerHtml(r, n) {
+  if (!r.items || !r.items.length) return '';
+  return '<div class="offer">' + r.items.map(i => '<div class="it"><a href="' + esc(href({ id: i.id })) + '" data-nav="1" data-close-first="1">' +
+      esc(i.title) + ' × ' + i.qty + '</a><span>' + money(i.price * i.qty) + '</span></div>').join('') +
+    (r.total != null ? '<div class="tot"><span>Итого с учётом скидки</span><span>' + money(r.total) + '</span></div>' : '') +
+    '<button class="btn small" data-agent-add="' + n + '">Положить в корзину</button></div>';
+}
+
+async function sendChat(text) {
+  if (chat.busy || !text.trim()) return;
+  chat.busy = true; $('chatSend').disabled = true;
+  bubble('msg me', esc(text));
+  const wait = bubble('typing', 'Подбираю…');
+  let r;
+  try { r = await post('/api/agent/message', { dialogId: chat.dialogId, visitorId, text }); }
+  catch (e) { r = { ok: false, body: { message: 'Нет связи с помощником. Проверьте интернет и попробуйте ещё раз.' } }; }
+  wait.remove();
+  chat.busy = false; $('chatSend').disabled = false;
+  if (!r.ok) {
+    const b = r.body || {};
+    bubble('msg sys', esc(b.message || 'Помощник сейчас не отвечает. Каталог и корзина работают как обычно.') +
+      (b.error === 'AGENT_MESSAGE_LIMIT' ? '<br><button class="btn small" data-new-chat="1" style="margin-top:8px">Новый разговор</button>' : ''));
+    if (b.error === 'AGENT_BUDGET' || b.error === 'AGENT_OFF' || b.error === 'AGENT_DIALOG_LIMIT') $('openChat').hidden = true;
+    return;
+  }
+  const d = r.body;
+  chat.dialogId = d.dialogId;
+  const n = chat.offers.push(d) - 1;
+  bubble('msg bot', esc(d.reply) + (d.links && d.links.length
+    ? '<br>' + d.links.map(l => '<a href="' + esc(String(l.url).replace(/^\//, '')) + '">' + esc(l.title) + '</a>').join(' · ') : ''));
+  const o = offerHtml(d, n);
+  if (o) bubble('offer-holder', o);
+}
+
+/** Состав от помощника — в ту же корзину, что и каталог. Не больше, чем есть в наличии. */
+function addOffer(n) {
+  const d = chat.offers[n]; if (!d) return;
+  let added = 0;
+  for (const i of d.items) {
+    const want = Math.min((cart[i.id] || 0) + i.qty, i.available);
+    if (want > (cart[i.id] || 0)) { added += want - (cart[i.id] || 0); cart[i.id] = want; refreshBuy(i.id); }
+  }
+  saveCart();
+  agentMark.set(d.dialogId);
+  bubble('msg sys', added ? 'Положил в корзину: ' + added + ' шт. <button class="link" data-open-cart="1">Открыть корзину</button>' : 'Всё это уже в корзине.');
+}
+
+$('chatForm').addEventListener('submit', e => { e.preventDefault(); const t = $('chatText').value; $('chatText').value = ''; sendChat(t); });
+$('chatText').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('chatForm').requestSubmit(); } });
 
 /* ---------- события ---------- */
 
@@ -603,7 +732,7 @@ document.addEventListener('click', e => {
     const q = new URL(a.href).searchParams;
     if (a.dataset.back && history.state && history.state.app && history.length > 1 && shown && shown.fromCatalog) return history.back();
     const fromCatalog = !current().id;
-    if (a.dataset.closeFirst) { $('cart').hidden = true; document.body.classList.remove('lock'); }
+    if (a.dataset.closeFirst) { $('cart').hidden = true; $('chat').hidden = true; document.body.classList.remove('lock'); }
     navigate({ id: q.get('id') || undefined });
     if (shown) shown.fromCatalog = fromCatalog;
     return;
@@ -616,8 +745,15 @@ document.addEventListener('click', e => {
   if (el.dataset.cat) { cat = el.dataset.cat; renderCatalog(); return; }
   if (el.dataset.slide) { const s = $('slides'); s.scrollTo({ left: s.clientWidth * Number(el.dataset.slide), behavior: 'smooth' }); return; }
   if (el.dataset.closeCart) return closeCart();
+  if (el.dataset.closeChat) return closeChat();
+  if (el.dataset.agentAdd) return addOffer(Number(el.dataset.agentAdd));
+  if (el.dataset.openCart) return navigate(Object.assign(current(), { cart: '1', chat: undefined }), { state: { cart: true } });
+  if (el.dataset.newChat) { chat.dialogId = null; $('msgs').innerHTML = ''; greet(); $('chatText').focus(); return; }
   switch (el.id) {
-    case 'openCart': return navigate(Object.assign(current(), { cart: '1' }), { state: { cart: true } });
+    case 'openCart': return navigate(Object.assign(current(), { cart: '1', chat: undefined }), { state: { cart: true } });
+    case 'openChat': return navigate(Object.assign(current(), { chat: '1', cart: undefined }), { state: { chat: true } });
+    case 'closeChat': return closeChat();
+
     case 'closeCart': return closeCart();
     case 'toShop': checkout = null; if (current().id) return navigate({}); return closeCart();
     case 'toCheckout': return renderCheckout();
@@ -627,7 +763,10 @@ document.addEventListener('click', e => {
   }
 });
 document.addEventListener('change', e => { if (e.target.id === 'sort') { sort = e.target.value; renderCatalog(); } });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('cart').hidden) closeCart(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('cart').hidden) closeCart();
+  else if (e.key === 'Escape' && !$('chat').hidden) closeChat();
+});
 document.addEventListener('input', e => { if (checkout && /^c(Name|Phone|Address)$/.test(e.target.id)) checkout[e.target.id.slice(1).toLowerCase()] = e.target.value; });
 
 /* ---------- запуск ---------- */
@@ -635,6 +774,7 @@ document.addEventListener('input', e => { if (checkout && /^c(Name|Phone|Address
 function route() {
   const c = current();
   setCartOpen(!!c.cart);
+  setChatOpen(!!c.chat);
   // открылась или закрылась только корзина — страницу под ней не перерисовываем
   const key = c.id || '';
   if (shown && shown.key === key && (key ? shown.data : items)) return;

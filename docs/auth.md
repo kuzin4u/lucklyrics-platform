@@ -26,10 +26,10 @@
   (400, с текстом). В ответ — новая сессия.
 - Кабинет, через `cabinet()` в `server.js`: `GET /api/orders`, `POST /api/orders/status`,
   `POST /api/catalog/import`, `GET /api/stock/log`, `POST /api/stock/adjust`,
-  `GET /api/sync/log`, `POST /api/sync/run`, `GET /api/sync/diff`, `POST /api/marketplace/orders`,
+  `GET /api/sync/log`, `POST /api/sync/run`, `GET /api/sync/diff`, `POST /api/marketplace/orders`, `GET /api/agent/stats`,
   `GET /api/marketplace/journal`.
   Новый маршрут кабинета без `cabinet()` — ошибка.
-- Без входа: `GET /api/catalog`, `GET /api/product`, `POST /api/cart/quote`, `POST /api/orders`,
+- Без входа: `GET /api/catalog`, `GET /api/product`, `POST /api/cart/quote`, `POST /api/orders`, `POST /api/agent/message`,
   `GET /api/config`, `GET /api/theme`, `GET /api/health`, `POST /api/auth/login`.
 - Отказы: 401 `UNAUTHORIZED` (в `reason`: `NO_TOKEN`, `BAD_TOKEN`, `TOKEN_EXPIRED`),
   403 `FORBIDDEN` — чужой экземпляр, 503 — вход не настроен.

@@ -24,7 +24,7 @@
 | `DATA_DIR` | api | уже `/var/data` — путь диска |
 | `MARKETPLACE_CLIENT_ID`, `MARKETPLACE_API_KEY` | api | пусто — сухой режим площадки; для боя ещё `marketplace.warehouseId` в конфиге (`docs/sync.md`) |
 | `PAYMENT_SHOP_ID`, `PAYMENT_SECRET_KEY` | api | пусто — сухой режим платежей |
-| `MODEL_API_KEY` | api | пусто: AI-помощник ещё не подключён, ключ пока не читается |
+| `MODEL_API_KEY` | api | ключ модели для AI-помощника; пусто — помощник выключен, кнопки нет (`docs/agent.md`) |
 | `API_HOST` | web | уже подставлен из `platform-api` |
 | `API_URL` | web | пусто; задать адрес API, если у него свой домен |
 
@@ -41,6 +41,8 @@
   работе, статика — при сборке (заголовки, Open Graph, тема, реквизиты). Строка из файла:
   `node -e "console.log(JSON.stringify(require('./config/brand.json')))"`.
 - Изменили конфиг — обновить переменную в обоих сервисах и пересобрать оба.
+- Помощнику нужны в `agent`: `maxMessagesPerDialog`, `maxDialogsPerVisitorPerDay`, `dailyBudgetUsd`.
+  Без дневного потолка он не включается даже с ключом.
 - Логотип, фавикон и картинка для мессенджеров — файлы `web/assets/logo.png`,
   `favicon.png`, `preview.png` в репозитории экземпляра.
 - Проверка: `GET /api/health` → `configSource: "env:BRAND_CONFIG_JSON"`. Если там

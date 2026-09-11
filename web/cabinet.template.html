@@ -101,7 +101,15 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
 .mode.live{background:var(--ok-l);color:var(--ok)}
 .sync-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
 .sync-actions .primary{width:auto;margin-top:0;padding:10px 18px}
-.okmark{color:var(--ok);font-weight:700}.badmark{color:var(--bad);font-weight:700}
+.okmark{color:var(--ok);font-weight:700}
+.dlg{border:1px solid var(--rule);border-radius:12px;margin-bottom:8px;background:#fff}
+.dlg summary{cursor:pointer;padding:10px 12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;min-height:44px}
+.dlg summary .oid{margin-right:auto}
+.turn{border-top:1px solid var(--rule);padding:8px 12px;font-size:13.5px}
+.turn .q{font-weight:600}
+.turn .a{color:var(--soft);margin-top:2px}
+.turn .p{margin-top:4px}
+.turn .drop{color:var(--bad)}.badmark{color:var(--bad);font-weight:700}
 .stock-warn{margin-top:12px;border:1px solid var(--warn);background:var(--warn-l);border-radius:10px;padding:10px 12px}
 .stock-warn h3{margin:0 0 6px;font-size:13.5px;color:var(--warn)}
 .stock-warn table{font-size:13px}
@@ -119,6 +127,7 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
     <button class="ghost" id="navOrders" hidden>Заказы</button>
     <button class="ghost" id="navImport" hidden>Импорт каталога</button>
     <button class="ghost" id="navSync" hidden>Площадка</button>
+    <button class="ghost" id="navAgent" hidden>Помощник</button>
     <button class="ghost" id="reload" hidden>Обновить</button>
     <button class="ghost" id="navPassword" hidden>Пароль</button>
     <button class="ghost" id="logout" hidden>Выйти</button>
@@ -228,6 +237,24 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
     <p class="soft" style="margin-top:12px">После смены все другие открытые сессии кабинета завершатся — там понадобится войти заново.</p>
   </section>
 
+  <div id="agentView" hidden>
+    <section class="panel">
+      <h2>AI-помощник витрины <span class="mode" id="agentMode"></span></h2>
+      <div class="soft" id="agentReason"></div>
+    </section>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Диалогов сегодня / за месяц</div><div class="v" id="aDialogs">—</div></div>
+      <div class="kpi"><div class="l">Заказов с участием помощника</div><div class="v" id="aOrders">—</div></div>
+      <div class="kpi"><div class="l">Средний чек этих заказов</div><div class="v" id="aAvg">—</div></div>
+      <div class="kpi"><div class="l">Расход сегодня / за месяц</div><div class="v" id="aCost">—</div></div>
+    </div>
+    <section class="panel">
+      <h2>Последние диалоги</h2>
+      <div class="soft" style="margin-bottom:8px" id="aLimits"></div>
+      <div id="aDialogsList"></div>
+    </section>
+  </div>
+
   <div id="syncView" hidden>
     <section class="panel">
       <h2>Синхронизация с площадкой <span class="mode" id="syncMode"></span></h2>
@@ -275,10 +302,12 @@ function show(view, msg, bad) {
   $('importView').hidden = view !== 'import';
   $('syncView').hidden = view !== 'sync';
   $('passwordView').hidden = view !== 'password';
+  $('agentView').hidden = view !== 'agent';
   $('navPassword').hidden = !token || view === 'gate' || view === 'foreign';
   $('navPassword').setAttribute('aria-pressed', view === 'password');
   $('reload').hidden = view !== 'board';
-  $('navOrders').hidden = $('navImport').hidden = $('navSync').hidden = !['board', 'import', 'sync', 'password'].includes(view);
+  $('navOrders').hidden = $('navImport').hidden = $('navSync').hidden = $('navAgent').hidden = !['board', 'import', 'sync', 'password', 'agent'].includes(view);
+  $('navAgent').setAttribute('aria-pressed', view === 'agent');
   $('navOrders').setAttribute('aria-pressed', view === 'board');
   $('navImport').setAttribute('aria-pressed', view === 'import');
   $('navSync').setAttribute('aria-pressed', view === 'sync');
@@ -380,6 +409,34 @@ async function load() {
   const s = await api('/api/sync/log?limit=1');
   $('syncAlert').hidden = !(s && s.alert);
   if (s && s.alert) $('syncAlertText').textContent = s.alert.message;
+}
+
+/* ---------- помощник ---------- */
+
+const usd = n => '$' + Number(n || 0).toFixed(n >= 1 ? 2 : 4);
+async function loadAgent() {
+  const s = await api('/api/agent/stats?limit=30');
+  if (!s) return;
+  show('agent');
+  $('agentMode').textContent = s.available ? 'работает' : 'выключен';
+  $('agentMode').className = 'mode' + (s.available ? ' live' : '');
+  $('agentReason').textContent = (s.available ? 'Модель: ' + (s.model || '—') : 'Причина: ' + s.reason) +
+    '. Покупатель видит кнопку «Подобрать», только пока помощник работает.';
+  $('aDialogs').textContent = s.today.dialogs + ' / ' + s.month.dialogs;
+  $('aOrders').textContent = s.orders.count;
+  $('aAvg').textContent = s.orders.count ? rub(s.orders.avgCheck) : '—';
+  $('aCost').textContent = usd(s.today.costUsd) + ' / ' + usd(s.month.costUsd);
+  $('aLimits').textContent = 'Пределы: ' + s.limits.maxMessagesPerDialog + ' сообщений в диалоге, ' + s.limits.maxDialogsPerVisitorPerDay +
+    ' диалогов с посетителя в сутки, потолок ' + usd(s.limits.dailyBudgetUsd) + ' в день (сегодня израсходовано ' +
+    (Math.round(1000 * s.today.costUsd / (s.limits.dailyBudgetUsd || 1)) / 10).toLocaleString('ru-RU') + '%).';
+  $('aDialogsList').innerHTML = s.recent.length ? s.recent.map(d => '<details class="dlg"><summary><span class="oid">' + esc(d.id) + '</span>' +
+      '<span class="soft">' + when(d.startedAt) + '</span><span>' + d.messages + ' сообщ.</span><span>' + usd(d.costUsd) + '</span></summary>' +
+      d.turns.map(t => '<div class="turn"><div class="q">' + esc(t.text) + '</div>' +
+        '<div class="a">' + (t.policy ? '<span class="tag">готовый ответ</span> ' : '') + esc(t.error || t.reply) + '</div>' +
+        (t.items.length ? '<div class="p">Предложено: ' + t.items.map(i => esc(i.title) + ' ×' + i.qty).join(', ') + '</div>' : '') +
+        (t.dropped && t.dropped.length ? '<div class="p drop">Отброшено: ' + t.dropped.map(x => esc(x.id) + ' — ' + esc(x.reason)).join(', ') + '</div>' : '') +
+        '<div class="p soft">' + when(t.at) + ' · ' + usd(t.costUsd) + '</div></div>').join('') + '</details>').join('')
+    : '<div class="empty">Диалогов ещё не было.</div>';
 }
 
 /* ---------- синхронизация с площадкой ---------- */
@@ -555,6 +612,7 @@ document.addEventListener('click', async e => {
   if (b.id === 'reload' || b.id === 'navOrders') return load();
   if (b.id === 'navImport') return show('import');
   if (b.id === 'navSync' || b.id === 'toSync') return loadSync();
+  if (b.id === 'navAgent') return loadAgent();
   if (b.id === 'syncPreview') { const p = await api('/api/sync/run?dryRun=1', { method: 'POST' }); if (p) $('syncOut').innerHTML = previewHtml(p); return; }
   if (b.id === 'syncRun') {
     b.disabled = true;

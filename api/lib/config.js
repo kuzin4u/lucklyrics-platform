@@ -109,7 +109,7 @@ function publicConfig(cfg) {
     currency: c.catalog.currency,
     discountTiers: c.catalog.discountTiers,
     channels: c.channels.filter(x => x.enabled).map(x => ({ code: x.code, title: x.title })),
-    agent: { enabled: c.agent.enabled }
+    agent: { enabled: require('./agent').available() }   // только «доступен ли»; ключ и причины — нет
   };
 }
 

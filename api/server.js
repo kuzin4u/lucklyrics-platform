@@ -19,6 +19,7 @@ const store = require('./lib/store');
 const importer = require('./lib/import');
 const sync = require('./lib/sync');
 const mpOrders = require('./lib/marketplace/orders');
+const agent = require('./lib/agent');
 
 const PORT = Number(process.env.PORT || 3000);
 const json = (res, code, body) => {
@@ -61,6 +62,7 @@ const routes = {
     stockScheme: config.get('stock.scheme'),
     storage: store.name(),
     sync: marketplace.isDry() ? 'dry-run' : 'live',
+    agent: agent.available() ? 'on' : 'off',
     previews: config.listPreviews(),
     time: new Date().toISOString()
   }),
@@ -100,7 +102,11 @@ const routes = {
   },
 
   'POST /api/orders': async (req, res, query, body) => {
-    try { json(res, 201, await orders.create(body)); }
+    try {
+      // отметка «с участием помощника» — только для существующего диалога
+      const assisted = body.agentDialogId && await agent.hasDialog(String(body.agentDialogId)) ? { dialogId: String(body.agentDialogId) } : null;
+      json(res, 201, await orders.create(Object.assign({}, body, { agent: assisted })));
+    }
     catch (e) { json(res, e.code === 'NOT_ENOUGH_STOCK' ? 409 : 400, { error: e.code || 'BAD_REQUEST', id: e.id, available: e.available }); }
   },
 
@@ -119,6 +125,18 @@ const routes = {
     try { json(res, 200, await auth.changePassword(seller.login, body)); }
     catch (e) { if (!authFailed(res, e)) throw e; }
   }),
+
+  // Помощник витрины: сообщение покупателя — без входа, со своими лимитами.
+  'POST /api/agent/message': async (req, res, query, body) => {
+    const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || '';
+    try { json(res, 200, await agent.message({ dialogId: body.dialogId, visitorId: body.visitorId, ip, text: body.text })); }
+    catch (e) {
+      const status = { AGENT_OFF: 503, AGENT_BUDGET: 429, AGENT_DIALOG_LIMIT: 429, AGENT_MESSAGE_LIMIT: 429, AGENT_UNAVAILABLE: 502, BAD_MESSAGE: 400 }[e.code];
+      if (!status) throw e;
+      json(res, status, { error: e.code, message: e.message });
+    }
+  },
+  'GET /api/agent/stats': cabinet(async (req, res, query) => json(res, 200, await agent.stats({ limit: query.get('limit') }))),
 
   'GET /api/orders': cabinet(async (req, res) => {
     const list = await orders.allOrders();
@@ -206,7 +224,7 @@ if (require.main === module) {
   // без секрета и без годного конфига бренда — не стартуем: это защита, а не сбой
   try { config.load(); auth.assertConfigured(); }
   catch (e) { console.error('Сервер не запущен: ' + e.message); process.exit(1); }
-  catalog.init().then(() => stock.init()).then(() => sync.start()).then(() => server.listen(PORT, () =>
+  catalog.init().then(() => stock.init()).then(() => agent.init()).then(() => sync.start()).then(() => server.listen(PORT, () =>
     console.log('api on :' + PORT + ' · конфиг ' + config.load()._source + ' · хранилище ' + store.name())));
 }
-module.exports = { server, routes, config, brand, stock, payments, marketplace, catalog, orders, auth, store, importer, sync };
+module.exports = { server, routes, config, brand, stock, payments, marketplace, catalog, orders, auth, store, importer, sync, agent };

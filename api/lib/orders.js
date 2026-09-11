@@ -22,7 +22,7 @@ const genId = () => 'ORD-' + Date.now().toString(36).toUpperCase().slice(-5) +
 /**
  * Создание заказа. channel определяет, кто считает сумму и чей остаток списывается.
  */
-async function create({ items, customer, channel, settlement }) {
+async function create({ items, customer, channel, settlement, agent }) {
   const ch = config.channel(channel || 'SITE');
   if (!customer || !(customer.name || customer.phone)) {
     const e = new Error('CUSTOMER_REQUIRED'); e.code = 'CUSTOMER_REQUIRED'; throw e;
@@ -47,6 +47,7 @@ async function create({ items, customer, channel, settlement }) {
     items: q.lines, qty: q.qty, goods: q.goods, discountPct: q.discountPct, discount: q.discount,
     total: q.total, status: 'NEW', statusTitle: TITLES.NEW, payment: null, reserved
   };
+  if (agent && agent.dialogId) order.agent = { dialogId: agent.dialogId };   // заказ с участием помощника
 
   try {
     order.payment = await payments.adapterFor(order).create(order);
