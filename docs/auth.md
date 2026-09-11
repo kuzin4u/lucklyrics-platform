@@ -21,6 +21,9 @@
 
 - `POST /api/auth/login` `{login, password}` → `{token, expiresAt, seller}`.
 - `GET /api/auth/me` → `{seller, owner}`.
+- `POST /api/auth/password` `{oldPassword, newPassword, confirm}` — смена пароля из кабинета:
+  логин из токена, отказы `WRONG_PASSWORD`, `WEAK_PASSWORD`, `PASSWORD_MISMATCH`, `SAME_PASSWORD`
+  (400, с текстом). В ответ — новая сессия.
 - Кабинет, через `cabinet()` в `server.js`: `GET /api/orders`, `POST /api/orders/status`,
   `POST /api/catalog/import`, `GET /api/stock/log`, `POST /api/stock/adjust`,
   `GET /api/sync/log`, `POST /api/sync/run`, `GET /api/sync/diff`, `POST /api/marketplace/orders`,
@@ -38,6 +41,13 @@
 продавца и экземпляра из тела или адреса не читается никогда; кто сделал операцию
 (статус заказа, правка остатка, импорт) — тоже только из токена.
 
+## Сессии и смена пароля
+
+В токене — отметка `pwd`: когда задан пароль продавца. Запрос кабинета сверяет её
+с записью продавца: пароль сменили (из кабинета или `--force`) — все прежние токены
+отвечают 401 с `reason: PASSWORD_CHANGED`; продавца нет — `SELLER_GONE`. Поэтому
+проверка входа читает запись продавца на каждом запросе кабинета.
+
 ## Кабинет в браузере
 
 Токен живёт в памяти страницы, не в localStorage: перезагрузка — новый вход.
@@ -47,7 +57,8 @@
 
 ## Продавцы
 
-`node api/scripts/add-seller.js <логин> <пароль>` — продавец текущего экземпляра.
+`node api/scripts/add-seller.js <логин> <пароль> [--force]` — продавец текущего экземпляра.
+Логин уже есть — отказ; `--force` перезаписывает пароль (сброс забытого) и обрывает его сессии.
 Логин 3–64 символа, пароль от 8. На площадке — через Shell сервиса API; продавец
 лежит на постоянном диске и переживает развёртывания (см. `docs/deploy.md`).
 

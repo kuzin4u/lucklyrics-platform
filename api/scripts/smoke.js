@@ -112,7 +112,8 @@ async function scenario(api, r, opts, ctx) {
   r.step('3. Кабинет закрыт без входа');
   for (const [method, route] of [['GET', '/api/orders'], ['POST', '/api/orders/status'], ['GET', '/api/stock/log'],
                                  ['POST', '/api/stock/adjust'], ['POST', '/api/catalog/import'],
-                                 ['GET', '/api/sync/log'], ['POST', '/api/sync/run'], ['GET', '/api/sync/diff']]) {
+                                 ['GET', '/api/sync/log'], ['POST', '/api/sync/run'], ['GET', '/api/sync/diff'],
+                                 ['POST', '/api/marketplace/orders'], ['POST', '/api/auth/password']]) {
     const x = await api(method, route, method === 'POST' ? { body: {} } : {});
     r.check(x.status === 401 ? 'ok' : 'fail', method + ' ' + route + ' → ' + x.status + (x.status === 401 ? '' : ' — ОТКРЫТО БЕЗ ВХОДА'));
   }

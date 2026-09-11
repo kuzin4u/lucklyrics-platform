@@ -27,17 +27,19 @@ const json = (res, code, body) => {
 };
 
 /** Отказ модуля входа → HTTP. Нет секрета — вход выключен, это ошибка сервера. */
-const AUTH_STATUS = { UNAUTHORIZED: 401, INVALID_CREDENTIALS: 401, FORBIDDEN: 403, NO_SECRET: 503, WEAK_SECRET: 503 };
+const AUTH_STATUS = { UNAUTHORIZED: 401, INVALID_CREDENTIALS: 401, FORBIDDEN: 403, NO_SECRET: 503, WEAK_SECRET: 503,
+  WRONG_PASSWORD: 400, WEAK_PASSWORD: 400, PASSWORD_MISMATCH: 400, SAME_PASSWORD: 400 };
 function authFailed(res, e) {
   if (!(e.code in AUTH_STATUS)) return false;
-  json(res, AUTH_STATUS[e.code], { error: e.code, reason: e.reason });
+  const status = AUTH_STATUS[e.code];
+  json(res, status, { error: e.code, reason: e.reason, message: status === 400 ? e.message : undefined });
   return true;
 }
 
 /** Маршрут кабинета: продавец приходит пятым аргументом и только из токена. */
-const cabinet = handler => (req, res, query, body) => {
+const cabinet = handler => async (req, res, query, body) => {
   let seller;
-  try { seller = auth.requireOwner(req); }
+  try { seller = await auth.requireOwner(req); }
   catch (e) { if (authFailed(res, e)) return; throw e; }
   return handler(req, res, query, body, seller);
 };
@@ -107,10 +109,16 @@ const routes = {
     catch (e) { if (!authFailed(res, e)) throw e; }
   },
 
-  'GET /api/auth/me': (req, res) => {
-    try { const seller = auth.requireSeller(req); json(res, 200, { seller, owner: auth.owns(seller) }); }
+  'GET /api/auth/me': async (req, res) => {
+    try { const seller = await auth.requireSeller(req); json(res, 200, { seller, owner: auth.owns(seller) }); }
     catch (e) { if (!authFailed(res, e)) throw e; }
   },
+
+  // Смена пароля: логин — из токена; ответ — новая сессия, прежние обрываются.
+  'POST /api/auth/password': cabinet(async (req, res, query, body, seller) => {
+    try { json(res, 200, await auth.changePassword(seller.login, body)); }
+    catch (e) { if (!authFailed(res, e)) throw e; }
+  }),
 
   'GET /api/orders': cabinet(async (req, res) => {
     const list = await orders.allOrders();

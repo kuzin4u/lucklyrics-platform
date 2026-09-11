@@ -53,6 +53,8 @@
    `node api/scripts/add-seller.js <логин> <пароль>` — пароль от 8 символов. Продавец
    лежит на диске и переживает следующие развёртывания.
 3. Для проверок — отдельный продавец, например `smoke-check`, со своим паролем.
+   Забыт пароль — там же `node api/scripts/add-seller.js <логин> <новый пароль> --force`;
+   сменить известный — в кабинете, кнопка «Пароль».
 4. Прогнать приёмку с рабочей машины:
    ```bash
    SMOKE_LOGIN=smoke-check SMOKE_PASSWORD=… npm run smoke https://<api>.onrender.com -- --web https://<web>.onrender.com

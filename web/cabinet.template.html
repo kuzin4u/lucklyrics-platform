@@ -79,6 +79,7 @@ tr.problem td{background:#fff7f8}
 .primary:disabled{opacity:.6;cursor:default}
 .note{margin-top:12px;font-size:13px;border-radius:9px;padding:9px 12px;background:var(--warn-l);color:var(--warn)}
 .note.bad{background:var(--bad-l);color:var(--bad)}
+.note.good{background:var(--ok-l);color:var(--ok)}
 header .who{align-self:center;font-size:12.5px;color:var(--soft)}
 .ghost[aria-pressed="true"]{border-color:var(--accent);color:var(--accent-dark);background:var(--accent-light)}
 .imp-pick{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
@@ -119,6 +120,7 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
     <button class="ghost" id="navImport" hidden>Импорт каталога</button>
     <button class="ghost" id="navSync" hidden>Площадка</button>
     <button class="ghost" id="reload" hidden>Обновить</button>
+    <button class="ghost" id="navPassword" hidden>Пароль</button>
     <button class="ghost" id="logout" hidden>Выйти</button>
   </span>
 </header>
@@ -211,6 +213,21 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
     </section>
   </div>
 
+  <section class="panel gate" id="passwordView" hidden>
+    <h2>Смена пароля</h2>
+    <form id="pwdForm">
+      <label for="pOld">Текущий пароль</label>
+      <input id="pOld" type="password" autocomplete="current-password" required>
+      <label for="pNew">Новый пароль — от 8 символов</label>
+      <input id="pNew" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="pConfirm">Новый пароль ещё раз</label>
+      <input id="pConfirm" type="password" autocomplete="new-password" minlength="8" required>
+      <button class="primary" id="pBtn" type="submit">Сменить пароль</button>
+    </form>
+    <div class="note" id="pwdMsg" role="alert" hidden></div>
+    <p class="soft" style="margin-top:12px">После смены все другие открытые сессии кабинета завершатся — там понадобится войти заново.</p>
+  </section>
+
   <div id="syncView" hidden>
     <section class="panel">
       <h2>Синхронизация с площадкой <span class="mode" id="syncMode"></span></h2>
@@ -257,8 +274,11 @@ function show(view, msg, bad) {
   $('board').hidden = view !== 'board';
   $('importView').hidden = view !== 'import';
   $('syncView').hidden = view !== 'sync';
+  $('passwordView').hidden = view !== 'password';
+  $('navPassword').hidden = !token || view === 'gate' || view === 'foreign';
+  $('navPassword').setAttribute('aria-pressed', view === 'password');
   $('reload').hidden = view !== 'board';
-  $('navOrders').hidden = $('navImport').hidden = $('navSync').hidden = !['board', 'import', 'sync'].includes(view);
+  $('navOrders').hidden = $('navImport').hidden = $('navSync').hidden = !['board', 'import', 'sync', 'password'].includes(view);
   $('navOrders').setAttribute('aria-pressed', view === 'board');
   $('navImport').setAttribute('aria-pressed', view === 'import');
   $('navSync').setAttribute('aria-pressed', view === 'sync');
@@ -276,7 +296,11 @@ async function api(path, opts) {
   const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers);
   if (token) headers.Authorization = 'Bearer ' + token;
   const r = await fetch(API + path, Object.assign({}, opts, { headers }));
-  if (r.status === 401) { show('gate', 'Сессия истекла или вход не выполнен. Войдите снова.'); return null; }
+  if (r.status === 401) {
+    const why = (await r.json().catch(() => ({}))).reason;
+    show('gate', why === 'PASSWORD_CHANGED' ? 'Пароль изменён в другой сессии — войдите с новым паролем.' : 'Сессия истекла или вход не выполнен. Войдите снова.');
+    return null;
+  }
   if (r.status === 403) { show('foreign'); return null; }
   if (r.status === 503) { show('gate', NO_SECRET, true); return null; }
   return r.json();
@@ -473,6 +497,32 @@ $('impFile').addEventListener('change', () => {
   $('impCheck').disabled = !$('impFile').files.length;
 });
 
+/* ---------- смена пароля ---------- */
+
+function pwdNote(text, bad) {
+  $('pwdMsg').hidden = false; $('pwdMsg').textContent = text; $('pwdMsg').className = 'note ' + (bad ? 'bad' : 'good');
+}
+function showPassword() {
+  ['pOld', 'pNew', 'pConfirm'].forEach(id => { $(id).value = ''; });
+  $('pwdMsg').hidden = true;
+  show('password'); $('pOld').focus();
+}
+$('pwdForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const body = { oldPassword: $('pOld').value, newPassword: $('pNew').value, confirm: $('pConfirm').value };
+  if (body.newPassword.length < 8) return pwdNote('Новый пароль короче 8 символов.', true);
+  if (body.newPassword !== body.confirm) return pwdNote('Новый пароль и подтверждение не совпадают.', true);
+  $('pBtn').disabled = true;
+  try {
+    const d = await api('/api/auth/password', { method: 'POST', body: JSON.stringify(body) });
+    if (!d) return;
+    if (d.error) return pwdNote(d.message ? d.message.charAt(0).toUpperCase() + d.message.slice(1) + '.' : 'Пароль не изменён.', true);
+    token = d.token;                    // прежняя сессия оборвалась — продолжаем с новой
+    ['pOld', 'pNew', 'pConfirm'].forEach(id => { $(id).value = ''; });
+    pwdNote('Пароль изменён. Другие открытые сессии кабинета завершены.');
+  } finally { $('pBtn').disabled = false; }
+});
+
 $('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
   $('lBtn').disabled = true;
@@ -523,6 +573,7 @@ document.addEventListener('click', async e => {
     return;
   }
   if (b.id === 'impApply' && pending) { b.disabled = true; try { await runImport(false); } finally { b.disabled = false; } return; }
+  if (b.id === 'navPassword') return showPassword();
   if (b.id === 'logout' || b.id === 'switch') return show('gate');
 });
 

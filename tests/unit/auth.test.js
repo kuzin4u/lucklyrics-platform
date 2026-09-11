@@ -113,7 +113,7 @@ test('истёкший токен не проходит', async t => {
   assert.equal(auth.verify(token).login, A.login, 'за минуту до срока ещё действует');
   t.mock.timers.tick(61 * 1000);
   assert.throws(() => auth.verify(token), e => e.code === 'TOKEN_EXPIRED');
-  assert.throws(() => auth.requireSeller({ headers: { authorization: 'Bearer ' + token } }),
+  await assert.rejects(() => auth.requireSeller({ headers: { authorization: 'Bearer ' + token } }),
     e => e.code === 'UNAUTHORIZED' && e.reason === 'TOKEN_EXPIRED');
 });
 
