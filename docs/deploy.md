@@ -22,7 +22,7 @@
 | `JWT_SECRET` | api | ничего: Blueprint генерирует сам. Свой — от 32 символов |
 | `BRAND_CONFIG_JSON` | api и web | содержимое `config/brand.json` одной строкой, **одинаковое** в обоих |
 | `DATA_DIR` | api | уже `/var/data` — путь диска |
-| `MARKETPLACE_CLIENT_ID`, `MARKETPLACE_API_KEY` | api | пусто — сухой режим площадки |
+| `MARKETPLACE_CLIENT_ID`, `MARKETPLACE_API_KEY` | api | пусто — сухой режим площадки; для боя ещё `marketplace.warehouseId` в конфиге (`docs/sync.md`) |
 | `PAYMENT_SHOP_ID`, `PAYMENT_SECRET_KEY` | api | пусто — сухой режим платежей |
 | `MODEL_API_KEY` | api | пусто: AI-помощник ещё не подключён, ключ пока не читается |
 | `API_HOST` | web | уже подставлен из `platform-api` |

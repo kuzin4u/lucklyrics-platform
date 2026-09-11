@@ -23,7 +23,8 @@
 - `GET /api/auth/me` → `{seller, owner}`.
 - Кабинет, через `cabinet()` в `server.js`: `GET /api/orders`, `POST /api/orders/status`,
   `POST /api/catalog/import`, `GET /api/stock/log`, `POST /api/stock/adjust`,
-  `GET /api/marketplace/journal`. Новый маршрут кабинета без `cabinet()` — ошибка.
+  `GET /api/sync/log`, `POST /api/sync/run`, `GET /api/sync/diff`, `GET /api/marketplace/journal`.
+  Новый маршрут кабинета без `cabinet()` — ошибка.
 - Без входа: `GET /api/catalog`, `GET /api/product`, `POST /api/cart/quote`, `POST /api/orders`,
   `GET /api/config`, `GET /api/theme`, `GET /api/health`, `POST /api/auth/login`.
 - Отказы: 401 `UNAUTHORIZED` (в `reason`: `NO_TOKEN`, `BAD_TOKEN`, `TOKEN_EXPIRED`),

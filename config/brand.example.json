@@ -70,6 +70,9 @@
     "baseUrl": "https://api-seller.ozon.ru",
     "dryRun": true,
     "syncIntervalSec": 0,
+    "syncWindowMs": 3000,
+    "syncRetries": 4,
+    "warehouseId": "",
     "modes": [
       "FBS",
       "FBO"

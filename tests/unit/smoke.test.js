@@ -8,7 +8,7 @@ const assert = require('node:assert');
 
 process.env.STORE_PROVIDER = 'memory';
 process.env.JWT_SECRET = 'smoke-test-secret-0123456789-abcdefghijk';
-const { server, routes, orders, stock, catalog, auth } = require('../../api/server');
+const { server, routes, orders, stock, catalog, auth, sync, config } = require('../../api/server');
 const { run } = require('../../api/scripts/smoke');
 
 const CREDS = { login: 'smoke-check', password: 'пароль-проверки-1' };
@@ -20,10 +20,12 @@ function patch(obj, key, value) { const saved = obj[key]; obj[key] = value; retu
 test.before(async () => {
   await orders.reset(); catalog.reset(); await stock.reset();
   await auth.register(CREDS.login, CREDS.password);
+  config.load().marketplace.syncWindowMs = 50;   // как на сервере: синхронизация слушает движения
+  sync.start();
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   base = 'http://127.0.0.1:' + server.address().port;
 });
-test.after(() => server.close());
+test.after(() => { server.close(); sync.stop(); });
 
 test('исправный контур: приёмка проходит целиком, заказ отменён, остаток на месте', async () => {
   const before = levels();
@@ -32,7 +34,7 @@ test('исправный контур: приёмка проходит цели�
   assert.equal(res.ok, true);
   assert.deepEqual(res.steps.map(s => s.title.replace(/^\d\. /, '')), ['Живость и режимы', 'Витрина открыта покупателю',
     'Кабинет закрыт без входа', 'Вход в кабинет', 'Сделка: каталог → корзина → заказ', 'Списание остатка',
-    'Кабинет: заказ и смена статуса', 'Отмена и возврат остатка']);
+    'Кабинет: заказ и смена статуса', 'Отмена и возврат остатка', 'Синхронизация с площадкой']);
   const o = await orders.byId(res.order);
   assert.equal(o.status, 'CANCELLED', 'тестовый заказ отменён');
   assert.match(o.customer.name, /SMOKE/, 'помечен как тестовый');

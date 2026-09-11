@@ -17,6 +17,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { EventEmitter } = require('events');
 const config = require('./config');
 const stock = require('./stock');
 const store = require('./store');
@@ -25,6 +26,9 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const NAME = 'catalog';
 let cache = null;
 let saving = Promise.resolve();
+// Каталог сохранён — событие 'change' (прежние позиции, новые). Кому важно, что
+// поменялось (синхронизация с площадкой), сравнивает сам.
+const events = new EventEmitter();
 
 function file() {
   return process.env.CATALOG_FILE
@@ -68,9 +72,11 @@ async function init() {
  */
 function save(mutator) {
   const run = saving.then(async () => {
-    const next = mutator(all());
+    const prev = all();
+    const next = mutator(prev);
     await store.write(NAME, { items: next, savedAt: new Date().toISOString() });
     cache = next.map(normalize);
+    events.emit('change', prev, cache);
     return cache;
   });
   saving = run.catch(() => {});
@@ -177,4 +183,4 @@ function expand(lines) {
 
 function reset() { cache = null; }
 
-module.exports = { all, byId, categories, forChannel, product, media, quote, expand, discountPct, init, save, reset, file };
+module.exports = { all, byId, categories, forChannel, product, media, quote, expand, discountPct, init, save, reset, file, events };

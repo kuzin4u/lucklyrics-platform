@@ -5,8 +5,8 @@
  *
  * Шаги: живость и режимы, публичность витрины, закрытость кабинета, вход,
  * сквозная сделка от каталога до заказа, списание остатка, смена статуса,
- * отмена и возврат остатка. Печатает отчёт с отметками, код выхода 1 — если
- * есть провал.
+ * отмена и возврат остатка, синхронизация с площадкой (журнал, предпросмотр,
+ * сверка). Печатает отчёт с отметками, код выхода 1 — если есть провал.
  *
  * Ничего не ломает: заказ создаётся один, помечен как тестовый и отменяется
  * в конце, даже если шаг посередине упал. Без учётных данных кабинета заказ
@@ -111,7 +111,8 @@ async function scenario(api, r, opts, ctx) {
   // 3. кабинет закрыт
   r.step('3. Кабинет закрыт без входа');
   for (const [method, route] of [['GET', '/api/orders'], ['POST', '/api/orders/status'], ['GET', '/api/stock/log'],
-                                 ['POST', '/api/stock/adjust'], ['POST', '/api/catalog/import']]) {
+                                 ['POST', '/api/stock/adjust'], ['POST', '/api/catalog/import'],
+                                 ['GET', '/api/sync/log'], ['POST', '/api/sync/run'], ['GET', '/api/sync/diff']]) {
     const x = await api(method, route, method === 'POST' ? { body: {} } : {});
     r.check(x.status === 401 ? 'ok' : 'fail', method + ' ' + route + ' → ' + x.status + (x.status === 401 ? '' : ' — ОТКРЫТО БЕЗ ВХОДА'));
   }
@@ -142,6 +143,7 @@ async function scenario(api, r, opts, ctx) {
   const order = await api('POST', '/api/orders', { body: { items: [{ id: pick.id, qty: 1 }], channel: 'SITE', customer: SMOKE_CUSTOMER } });
   if (!r.check(order.status === 201 && order.json.id ? 'ok' : 'fail', 'заказ → ' + order.status + (order.json && order.json.id ? ', № ' + order.json.id : ''))) return;
   ctx.orderId = order.json.id;
+  ctx.orderAt = order.json.at;
   r.check(order.json.total === quote.json.total ? 'ok' : 'fail', 'сумма заказа совпадает с расчётом корзины: ' + order.json.total);
 
   // 6. списание
@@ -168,6 +170,30 @@ async function scenario(api, r, opts, ctx) {
   const log = await api('GET', '/api/stock/log?id=' + encodeURIComponent(pick.id), { token: ctx.token });
   const moves = ((log.json && log.json.entries) || []).filter(e => e.ref === ctx.orderId).map(e => e.reason).sort();
   r.check(moves.join(',') === 'cancel,order' ? 'ok' : 'fail', 'в журнале движений по заказу: ' + (moves.join(', ') || 'ничего'));
+
+  // 9. синхронизация: движения заказа ушли посылкой, предпросмотр ничего не шлёт, сверка честная
+  r.step('9. Синхронизация с площадкой');
+  let s = (await api('GET', '/api/sync/log?limit=20', { token: ctx.token })).json;
+  if (!r.check(s ? 'ok' : 'fail', 'журнал синхронизации виден в кабинете')) return;
+  if (!s.active) { r.check('warn', 'синхронизация выключена в конфигурации — пропуск'); return; }
+  r.check('ok', 'режим: ' + (s.mode === 'dry-run' ? 'сухой прогон' : 'боевой') + ', окно ' + s.windowMs + ' мс');
+  const since = ctx.orderAt;
+  const deadline = Date.now() + s.windowMs + 4000;
+  let sent = null;
+  while (!sent && Date.now() < deadline) {
+    sent = s.entries.find(e => e.at >= since && e.kind === 'stocks' && e.rows.some(x => x.offer_id === pick.id));
+    if (!sent) { await new Promise(res => setTimeout(res, 500)); s = (await api('GET', '/api/sync/log?limit=20', { token: ctx.token })).json; }
+  }
+  r.check(sent ? (sent.ok ? 'ok' : 'fail') : 'fail', sent
+    ? 'заказ и отмена ушли одной посылкой остатков: ' + (sent.reasons || []).join(', ') + ' → ' + (sent.ok ? sent.response : sent.error)
+    : 'по заказу нет посылки остатков за ' + Math.round((s.windowMs + 4000) / 1000) + ' с');
+  const preview = (await api('POST', '/api/sync/run?dryRun=1', { token: ctx.token })).json || {};
+  const row = (preview.stocks || []).find(x => x.offer_id === pick.id);
+  r.check(preview.preview && row ? 'ok' : 'fail', 'предпросмотр: уйдёт цен ' + (preview.prices || []).length + ', остатков ' + (preview.stocks || []).length +
+    (row ? ', ' + pick.id + ' — ' + row.stock + ' для площадки' : ''));
+  const d = (await api('GET', '/api/sync/diff', { token: ctx.token })).json || {};
+  if (s.mode === 'dry-run') r.check(d.status === 'NO_DATA' ? 'ok' : 'fail', 'сверка в сухом прогоне: ' + (d.status === 'NO_DATA' ? 'честно «данных площадки нет»' : d.status));
+  else r.check(d.status === 'OK' ? 'ok' : 'warn', 'сверка с площадкой: ' + d.status + (d.mismatches ? ', расхождений ' + d.mismatches.length : ''));
 }
 
 /** Витрина: собрана с тем же конфигом, смотрит на этот API, юридические страницы на месте. */

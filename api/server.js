@@ -17,6 +17,7 @@ const orders = require('./lib/orders');
 const auth = require('./lib/auth');
 const store = require('./lib/store');
 const importer = require('./lib/import');
+const sync = require('./lib/sync');
 
 const PORT = Number(process.env.PORT || 3000);
 const json = (res, code, body) => {
@@ -56,6 +57,7 @@ const routes = {
     payments: payments.adapterFor().name + (payments.adapterFor().live() ? ':live' : ':dry'),
     stockScheme: config.get('stock.scheme'),
     storage: store.name(),
+    sync: marketplace.isDry() ? 'dry-run' : 'live',
     previews: config.listPreviews(),
     time: new Date().toISOString()
   }),
@@ -147,6 +149,12 @@ const routes = {
     }
   }),
 
+  // Синхронизация с площадкой: журнал, ручной запуск (?dryRun=1 — только показать), сверка.
+  'GET /api/sync/log': cabinet(async (req, res, query) => json(res, 200, await sync.log({ limit: query.get('limit') }))),
+  'POST /api/sync/run': cabinet(async (req, res, query, body, seller) =>
+    json(res, 200, await sync.run({ preview: ['1', 'true'].includes(query.get('dryRun')), by: seller.login }))),
+  'GET /api/sync/diff': cabinet(async (req, res) => json(res, 200, await sync.diff())),
+
   'GET /api/marketplace/journal': cabinet((req, res) => json(res, 200, {
     dryRun: marketplace.isDry(), entries: marketplace.journal.slice(-50)
   }))
@@ -182,7 +190,7 @@ if (require.main === module) {
   // без секрета и без годного конфига бренда — не стартуем: это защита, а не сбой
   try { config.load(); auth.assertConfigured(); }
   catch (e) { console.error('Сервер не запущен: ' + e.message); process.exit(1); }
-  catalog.init().then(() => stock.init()).then(() => server.listen(PORT, () =>
+  catalog.init().then(() => stock.init()).then(() => sync.start()).then(() => server.listen(PORT, () =>
     console.log('api on :' + PORT + ' · конфиг ' + config.load()._source + ' · хранилище ' + store.name())));
 }
-module.exports = { server, routes, config, brand, stock, payments, marketplace, catalog, orders, auth, store, importer };
+module.exports = { server, routes, config, brand, stock, payments, marketplace, catalog, orders, auth, store, importer, sync };

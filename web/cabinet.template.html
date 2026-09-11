@@ -90,6 +90,13 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
 .moved{margin-top:6px;font-size:12px;color:var(--soft);border-top:1px dashed var(--rule);padding-top:4px}
 #impResult .kpis{grid-template-columns:repeat(5,1fr)}
 @media(max-width:820px){#impResult .kpis{grid-template-columns:repeat(2,1fr)}}
+.sync-alert{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--bad);background:var(--bad-l);color:var(--bad);border-radius:12px;padding:12px 14px;margin-bottom:16px;font-size:14px}
+.sync-alert .rowbtn{margin-left:auto;flex:none}
+.mode{display:inline-block;font-size:12px;font-weight:700;border-radius:10px;padding:3px 10px;background:var(--warn-l);color:var(--warn)}
+.mode.live{background:var(--ok-l);color:var(--ok)}
+.sync-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.sync-actions .primary{width:auto;margin-top:0;padding:10px 18px}
+.okmark{color:var(--ok);font-weight:700}.badmark{color:var(--bad);font-weight:700}
 .stock-warn{margin-top:12px;border:1px solid var(--warn);background:var(--warn-l);border-radius:10px;padding:10px 12px}
 .stock-warn h3{margin:0 0 6px;font-size:13.5px;color:var(--warn)}
 .stock-warn table{font-size:13px}
@@ -106,6 +113,7 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
     <a class="ghost" href="index.html">Открыть витрину</a>
     <button class="ghost" id="navOrders" hidden>Заказы</button>
     <button class="ghost" id="navImport" hidden>Импорт каталога</button>
+    <button class="ghost" id="navSync" hidden>Площадка</button>
     <button class="ghost" id="reload" hidden>Обновить</button>
     <button class="ghost" id="logout" hidden>Выйти</button>
   </span>
@@ -131,6 +139,7 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
   </section>
 
   <div id="board" hidden>
+  <div class="sync-alert" id="syncAlert" role="alert" hidden><span id="syncAlertText"></span><button class="rowbtn" id="toSync">Открыть</button></div>
   <div class="kpis">
     <div class="kpi"><div class="l">Заказов</div><div class="v" id="kOrders">—</div></div>
     <div class="kpi"><div class="l">Выручка</div><div class="v" id="kRevenue">—</div></div>
@@ -196,6 +205,28 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
       </div>
     </section>
   </div>
+
+  <div id="syncView" hidden>
+    <section class="panel">
+      <h2>Синхронизация с площадкой <span class="mode" id="syncMode"></span></h2>
+      <div class="soft">Цены — из каталога, остатки — доступные для площадки, уже без страхового запаса. Позиции со склада
+        площадки и наборы в остатки не уходят. Изменения копятся несколько секунд и уходят одной посылкой.</div>
+      <div class="sync-alert" id="syncAlert2" role="alert" hidden></div>
+      <div class="sync-actions">
+        <button class="primary" id="syncPreview">Что уйдёт</button>
+        <button class="rowbtn" id="syncRun">Отправить сейчас</button>
+        <button class="rowbtn" id="syncDiff">Сверить с площадкой</button>
+      </div>
+      <div id="syncOut" style="margin-top:14px"></div>
+    </section>
+    <section class="panel">
+      <h2>Журнал синхронизации</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Когда</th><th>Что</th><th>Повод</th><th>Позиций</th><th>Попыток</th><th>Итог</th></tr></thead>
+        <tbody id="syncRows"></tbody>
+      </table></div>
+    </section>
+  </div>
 </main>
 
 <script>
@@ -219,10 +250,12 @@ function show(view, msg, bad) {
   $('foreign').hidden = view !== 'foreign';
   $('board').hidden = view !== 'board';
   $('importView').hidden = view !== 'import';
+  $('syncView').hidden = view !== 'sync';
   $('reload').hidden = view !== 'board';
-  $('navOrders').hidden = $('navImport').hidden = view !== 'board' && view !== 'import';
+  $('navOrders').hidden = $('navImport').hidden = $('navSync').hidden = !['board', 'import', 'sync'].includes(view);
   $('navOrders').setAttribute('aria-pressed', view === 'board');
   $('navImport').setAttribute('aria-pressed', view === 'import');
+  $('navSync').setAttribute('aria-pressed', view === 'sync');
   $('logout').hidden = $('who').hidden = !token;
   if (view === 'gate') {
     $('gateMsg').hidden = !msg; $('gateMsg').textContent = msg || '';
@@ -305,6 +338,52 @@ async function load() {
   const d = await api('/api/orders');
   if (!d) return;
   orders = d.orders; stats = d.stats; show('board'); render();
+  // отказ площадки виден и с экрана заказов
+  const s = await api('/api/sync/log?limit=1');
+  $('syncAlert').hidden = !(s && s.alert);
+  if (s && s.alert) $('syncAlertText').textContent = s.alert.message;
+}
+
+/* ---------- синхронизация с площадкой ---------- */
+
+const when = t => t ? new Date(t).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+const KIND = { prices: 'цены', stocks: 'остатки' };
+const WHY = { order: 'заказ', cancel: 'отмена', import: 'импорт', manual: 'правка остатка', seed: 'начальный остаток' };
+
+async function loadSync() {
+  const s = await api('/api/sync/log?limit=100');
+  if (!s) return;
+  show('sync');
+  $('syncMode').textContent = s.mode === 'live' ? 'боевой режим' : 'сухой прогон';
+  $('syncMode').className = 'mode' + (s.mode === 'live' ? ' live' : '');
+  $('syncAlert2').hidden = !s.alert;
+  $('syncAlert2').textContent = s.alert ? s.alert.message : '';
+  $('syncRows').innerHTML = s.entries.length ? s.entries.map(e => '<tr><td class="soft">' + when(e.at) + '</td><td>' + KIND[e.kind] + '</td>' +
+    '<td class="soft">' + esc((e.reasons || []).map(r => WHY[r] || r).join(', ')) + '</td><td>' + e.count + '</td><td>' + e.attempts + '</td>' +
+    '<td>' + (e.ok ? '<span class="okmark">✓</span> ' : '<span class="badmark">✗</span> ') + esc(e.error || e.response || '') + '</td></tr>').join('')
+    : '<tr><td colspan="6" class="empty">Отправок ещё не было. Изменение цены или остатка, заказ или кнопка «Отправить сейчас» — и запись появится здесь.' +
+      (s.pending ? ' В очереди: ' + s.pending + '.' : '') + '</td></tr>';
+}
+
+function previewHtml(p) {
+  if (p.disabled) return '<div class="note">' + esc(p.message) + '</div>';
+  const sk = p.skipped || {};
+  return '<div class="soft">Уйдёт: цен — <b>' + p.prices.length + '</b>, остатков — <b>' + p.stocks.length + '</b>' +
+    (sk.fbo && sk.fbo.length ? '. Склад площадки, остаток не отправляется: ' + sk.fbo.map(esc).join(', ') : '') +
+    (sk.bundles && sk.bundles.length ? '. Наборы не выгружаются: ' + sk.bundles.map(esc).join(', ') : '') + '.</div>' +
+    '<div class="scroll"><table><thead><tr><th>Артикул</th><th>Цена</th><th>Старая цена</th><th>Остаток для площадки</th></tr></thead><tbody>' +
+    p.prices.map(r => { const st = p.stocks.find(x => x.offer_id === r.offer_id);
+      return '<tr><td class="oid">' + esc(r.offer_id) + '</td><td>' + esc(r.price) + '</td><td class="soft">' + (r.old_price !== '0' ? esc(r.old_price) : '—') +
+        '</td><td>' + (st ? st.stock : '<span class="soft">не отправляется</span>') + '</td></tr>'; }).join('') + '</tbody></table></div>';
+}
+
+function diffHtml(d) {
+  if (d.status === 'NO_DATA') return '<div class="note">' + esc(d.message) + '</div>';
+  const head = d.status === 'OK' ? '<span class="okmark">✓</span> Расхождений нет' : '<span class="badmark">✗</span> Расхождений: ' + d.mismatches.length;
+  return '<div>' + head + ' <span class="soft">· проверено ' + d.checked + ', данные площадки от ' + when(d.remoteAt) + '</span></div>' +
+    (d.mismatches.length ? '<div class="scroll"><table><thead><tr><th>Артикул</th><th>Что</th><th>У нас</th><th>На площадке</th></tr></thead><tbody>' +
+      d.mismatches.map(m => '<tr><td class="oid">' + esc(m.offer_id) + '</td><td>' + (m.field === 'price' ? 'цена' : 'остаток') + '</td><td>' + esc(m.ours) +
+        '</td><td>' + (m.theirs === null ? '<span class="soft">' + esc(m.note) + '</span>' : esc(m.theirs)) + '</td></tr>').join('') + '</tbody></table></div>' : '');
 }
 
 /* ---------- импорт каталога ---------- */
@@ -411,6 +490,15 @@ document.addEventListener('click', async e => {
   }
   if (b.id === 'reload' || b.id === 'navOrders') return load();
   if (b.id === 'navImport') return show('import');
+  if (b.id === 'navSync' || b.id === 'toSync') return loadSync();
+  if (b.id === 'syncPreview') { const p = await api('/api/sync/run?dryRun=1', { method: 'POST' }); if (p) $('syncOut').innerHTML = previewHtml(p); return; }
+  if (b.id === 'syncRun') {
+    b.disabled = true;
+    try { const r = await api('/api/sync/run', { method: 'POST' }); if (r) { $('syncOut').innerHTML = r.disabled ? previewHtml(r) : ''; await loadSync(); } }
+    finally { b.disabled = false; }
+    return;
+  }
+  if (b.id === 'syncDiff') { const d = await api('/api/sync/diff'); if (d) $('syncOut').innerHTML = diffHtml(d); return; }
   if (b.id === 'impCheck') {
     const f = $('impFile').files[0]; if (!f) return;
     b.disabled = true;

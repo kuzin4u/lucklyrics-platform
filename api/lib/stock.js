@@ -26,6 +26,7 @@
  * Изменения — только через store.update: проверка и списание в одной операции,
  * два заказа на последнюю штуку не проходят оба.
  */
+const { EventEmitter } = require('events');
 const config = require('./config');
 const store = require('./store');
 const catalog = () => require('./catalog');   // взаимная зависимость: каталог спрашивает доступность
@@ -33,6 +34,10 @@ const catalog = () => require('./catalog');   // взаимная зависим
 const NAME = 'stock';
 const FIELDS = ['stock', 'marketplaceStock'];
 const REASONS = { seed: 'начальный остаток', order: 'заказ', cancel: 'отмена', import: 'импорт', manual: 'ручная правка' };
+
+// Изменения остатка — событием 'change' со списком новых записей журнала.
+// Подписчики (синхронизация с площадкой) узнают о движении, stock.js о них не знает.
+const events = new EventEmitter();
 
 let mem = null;   // копия записи: { levels: { id: { stock, marketplaceStock } }, log: [...] }
 // Журнал растёт внутри записи без ограничения. При постоянном хранилище он выносится
@@ -70,8 +75,14 @@ async function init() {
 
 /** Изменение остатка: fn меняет запись s и журнал, всё — одной операцией хранилища. */
 async function change(fn) {
-  let out;
-  mem = await store.update(NAME, cur => { const s = cur || seed(); out = fn(s, new Date().toISOString()); return s; });
+  let out, fresh = [];
+  mem = await store.update(NAME, cur => {
+    const s = cur || seed(), n = s.log.length;
+    out = fn(s, new Date().toISOString());
+    fresh = s.log.slice(n);
+    return s;
+  });
+  if (fresh.length) events.emit('change', fresh);
   return out;
 }
 
@@ -245,5 +256,5 @@ async function reset() { mem = null; await store.write(NAME, null); }
 
 module.exports = {
   availableStock, canSell, bufferFor, fulfillmentOf, level, log,
-  reserveMany, releaseMany, setMany, adjust, init, reset, REASONS
+  reserveMany, releaseMany, setMany, adjust, init, reset, REASONS, events
 };
