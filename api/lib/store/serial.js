@@ -20,7 +20,9 @@ const copy = v => (v == null ? null : structuredClone(v));
  */
 function serialized({ name, readRaw, writeRaw }) {
   const tails = new Map();
-  // Задачи одного имени выполняются строго друг за другом.
+  // Задачи одного имени выполняются строго друг за другом — внутри процесса.
+  // Скрипт и сервер, пишущие одно имя одновременно, не защищены: это задача
+  // постоянного хранилища, отдельно не чинится.
   function queue(key, task) {
     const run = (tails.get(key) || Promise.resolve()).then(task);
     tails.set(key, run.catch(() => {}));

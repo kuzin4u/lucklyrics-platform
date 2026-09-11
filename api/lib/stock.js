@@ -35,6 +35,8 @@ const FIELDS = ['stock', 'marketplaceStock'];
 const REASONS = { seed: 'начальный остаток', order: 'заказ', cancel: 'отмена', import: 'импорт', manual: 'ручная правка' };
 
 let mem = null;   // копия записи: { levels: { id: { stock, marketplaceStock } }, log: [...] }
+// Журнал растёт внутри записи без ограничения. При постоянном хранилище он выносится
+// в отдельную таблицу; интерфейс log() при этом не меняется.
 
 const clampNonNegative = n => (n > 0 ? n : 0);
 const has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
@@ -141,6 +143,7 @@ function log({ id, limit } = {}) {
 
 /* ---------- изменение ---------- */
 
+/** Одинаковые позиции складываются: набор и та же позиция отдельно делят один остаток. */
 function aggregate(lines) {
   const need = new Map();
   for (const l of lines || []) need.set(String(l.id), (need.get(String(l.id)) || 0) + (Number(l.qty) || 0));
