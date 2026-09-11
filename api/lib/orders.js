@@ -30,15 +30,22 @@ async function create({ items, customer, channel, settlement }) {
   const q = catalog.quote(items, ch.code);
   if (!q.lines.length) { const e = new Error('EMPTY_CART'); e.code = 'EMPTY_CART'; throw e; }
 
-  // остаток списывается только если канал работает с нашим складом
-  if (ch.ownStock) for (const l of q.lines) stock.reserve(catalog.byId(l.id), ch.code, l.qty);
+  const id = genId();
+  // остаток списывается только если канал работает с нашим складом; атомарно, все или ничего
+  let reserved = [];
+  if (ch.ownStock) {
+    const lines = catalog.expand(q.lines);
+    const moved = await stock.reserveMany(lines, ch.code, { ref: id });
+    reserved = moved.map(m => ({ id: m.id, title: lines.find(l => l.id === m.id).title, qty: m.qty }));
+  }
 
+  // два представления: строки как видел покупатель (набор — одной строкой) и что ушло со склада
   const order = {
-    id: genId(), at: new Date().toISOString(), channel: ch.code, channelTitle: ch.title,
+    id, at: new Date().toISOString(), channel: ch.code, channelTitle: ch.title,
     settlement: settlement || config.get('payments.settlementDefault', 'DIRECT'),
     customer: { name: customer.name || '', phone: customer.phone || '', address: customer.address || '' },
     items: q.lines, qty: q.qty, goods: q.goods, discountPct: q.discountPct, discount: q.discount,
-    total: q.total, status: 'NEW', statusTitle: TITLES.NEW, payment: null
+    total: q.total, status: 'NEW', statusTitle: TITLES.NEW, payment: null, reserved
   };
 
   try {
@@ -56,21 +63,23 @@ const byId = async id => (await allOrders()).find(o => o.id === id) || null;
 
 /** Следующий статус по потоку. Возврат остатка при отмене. by — кто перевёл, из токена. */
 async function advance(id, to, by) {
-  let changed;
+  let changed, giveBack = null;
   await store.update(NAME, list => {
     const o = (list || []).find(x => x.id === id);
     if (!o) { const e = new Error('ORDER_NOT_FOUND'); e.code = 'ORDER_NOT_FOUND'; throw e; }
     const next = to || FLOW[o.status];
     if (!next || !(next in TITLES)) { const e = new Error('BAD_STATUS'); e.code = 'BAD_STATUS'; throw e; }
-    if (next === 'CANCELLED' && o.status !== 'CANCELLED') {
-      const ch = config.channel(o.channel);
-      if (ch.ownStock) for (const l of o.items) stock.release(catalog.byId(l.id), l.qty);
+    if (next === 'CANCELLED' && o.status !== 'CANCELLED' && config.channel(o.channel).ownStock) {
+      // возвращается ровно списанное, а не состав набора на сегодня; у старых заказов — строки
+      giveBack = o.reserved || o.items.map(l => ({ id: l.id, qty: l.qty }));
     }
     o.status = next; o.statusTitle = TITLES[next];
     o.history = (o.history || []).concat({ at: new Date().toISOString(), status: next, by: by || null });
     changed = o;
     return list;
   });
+  // остаток возвращается после записи статуса: сбой не вернёт товар дважды
+  if (giveBack) await stock.releaseMany(giveBack, { ref: id, by });
   return changed;
 }
 

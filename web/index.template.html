@@ -84,6 +84,10 @@ input{width:100%;border:1px solid var(--rule);border-radius:9px;padding:10px 12p
 .sheet h2{margin:0 0 6px;font:800 20px var(--font-title)}
 .sheet .info{padding:16px 22px 22px}
 .sheet ul{margin:8px 0 0;padding-left:20px;font-size:13.5px;color:var(--soft)}
+.sheet .kit{margin:12px 0 0;padding:10px 14px;border:1px solid var(--rule);border-radius:10px;background:var(--paper)}
+.sheet .kit b{font-size:13px}
+.sheet .kit ul{margin-top:4px;color:var(--ink)}
+.kit-tag{display:inline-block;margin-left:6px;font-size:10.5px;font-weight:700;border-radius:8px;padding:1px 7px;background:var(--accent-light);color:var(--accent-dark);vertical-align:middle}
 
 .preview{background:#fbf4e3;border:1px solid #eddcae;border-radius:10px;padding:9px 13px;font-size:13px;margin:14px 0}
 footer{border-top:1px solid var(--rule);margin-top:20px;padding:18px 16px 40px;text-align:center;font-size:12.5px;color:var(--soft);background:#fff}
@@ -135,6 +139,11 @@ const previewSlug = new URLSearchParams(location.search).get('preview');
 const pq = previewSlug ? '?preview=' + encodeURIComponent(previewSlug) : '';
 const $ = id => document.getElementById(id);
 const rub = n => Math.round(n).toLocaleString('ru-RU') + ' \u20BD';
+const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+/** Состав набора списком: покупатель видит, что внутри, а цена — у набора. */
+const kitList = p => p.components && p.components.length
+  ? '<div class="kit"><b>В наборе</b><ul>' + p.components.map(c => '<li>' + esc(c.title) + (c.qty > 1 ? ' \u00D7 ' + c.qty : '') + '</li>').join('') + '</ul></div>'
+  : '';
 
 let items = [], cats = [], cart = {}, cat = 'all', sort = 'pop', cfg = null;
 
@@ -178,7 +187,7 @@ function renderGrid() {
       '<div class="pic">' + (disc ? '<span class="badge">\u2212' + disc + '%</span>' : '') + (p.emoji || '\uD83D\uDCE6') + '</div>' +
       '<div class="body">' +
         '<div class="price"><b>' + rub(p.price) + '</b>' + (p.oldPrice > p.price ? '<s>' + rub(p.oldPrice) + '</s>' : '') + '</div>' +
-        '<div class="nm">' + p.title + '</div>' +
+        '<div class="nm">' + p.title + (p.kind === 'bundle' ? '<span class="kit-tag">набор</span>' : '') + '</div>' +
         '<div class="meta">' + (p.reviews ? '\u2605 ' + p.rating.toFixed(1) + ' \u00B7 ' + p.reviews + ' отзывов' : 'Новинка') +
           (out ? ' \u00B7 нет в наличии' : ' \u00B7 в наличии ' + p.available) + '</div>' +
         '<button class="add" data-add="' + p.id + '"' + (out ? ' disabled' : '') + '>' +
@@ -192,10 +201,9 @@ function openCard(id) {
     '<div class="top"><div class="pic">' + (p.emoji || '\uD83D\uDCE6') + '</div><div>' +
       '<h2>' + p.title + '</h2>' +
       '<div class="price"><b>' + rub(p.price) + '</b>' + (p.oldPrice > p.price ? '<s>' + rub(p.oldPrice) + '</s>' : '') + '</div>' +
-      '<div class="meta">' + (p.weight ? p.weight + ' \u00B7 ' : '') + p.categoryTitle +
-        (p.reviews ? ' \u00B7 \u2605 ' + p.rating.toFixed(1) : '') + '</div>' +
+      '<div class="meta">' + [p.weight, p.categoryTitle, p.reviews ? '\u2605 ' + p.rating.toFixed(1) : ''].filter(Boolean).join(' \u00B7 ') + '</div>' +
     '</div></div>' +
-    '<div class="info"><p>' + p.description + '</p>' +
+    '<div class="info"><p>' + p.description + '</p>' + kitList(p) +
       (p.features.length ? '<ul>' + p.features.map(f => '<li>' + f + '</li>').join('') + '</ul>' : '') +
       '<div style="margin-top:16px;display:flex;gap:10px">' +
         '<button class="btn" data-add="' + p.id + '"' + (p.available <= 0 ? ' disabled' : '') + '>' +

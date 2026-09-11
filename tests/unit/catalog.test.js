@@ -1,7 +1,9 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
+process.env.STORE_PROVIDER = 'memory';
 const catalog = require('../../api/lib/catalog');
+const stock = require('../../api/lib/stock');
 
 test('каталог читается и содержит позиции с категориями', () => {
   assert.ok(catalog.all().length >= 3);
@@ -15,7 +17,7 @@ test('витрина и площадка видят разный доступн�
   const mp = catalog.forChannel('MARKETPLACE');
   const bySite = Object.fromEntries(site.map(p => [p.id, p.available]));
   const byMp = Object.fromEntries(mp.map(p => [p.id, p.available]));
-  const fbs = catalog.all().find(p => p.fulfillment === 'FBS' && p.stock > 0);
+  const fbs = catalog.all().find(p => p.fulfillment === 'FBS' && stock.availableStock(p, 'SITE') > 0);
   assert.ok(bySite[fbs.id] > byMp[fbs.id], 'на площадку уходит остаток минус буфер');
   const fbo = catalog.all().find(p => p.fulfillment === 'FBO');
   if (fbo) assert.equal(bySite[fbo.id], 0, 'товар со склада площадки на витрине не продаётся');
@@ -28,7 +30,7 @@ test('скидка растёт по ступеням из конфигурац�
 });
 
 test('расчёт корзины: сумма, скидка, итог сходятся', () => {
-  const p = catalog.all().find(x => x.fulfillment !== 'FBO' && x.stock >= 6);
+  const p = catalog.all().find(x => x.fulfillment !== 'FBO' && stock.availableStock(x, 'SITE') >= 6);
   const q = catalog.quote([{ id: p.id, qty: 6 }], 'SITE');
   assert.equal(q.qty, 6);
   assert.equal(q.goods, p.price * 6);

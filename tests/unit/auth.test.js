@@ -20,7 +20,7 @@ const SECRET = 'test-secret-for-cabinet-tokens-0123456789';
 const OTHER_SECRET = 'another-instance-secret-9876543210-abcdef';
 process.env.JWT_SECRET = SECRET;
 
-const { server, config, catalog, orders, auth } = require('../../api/server');
+const { server, config, catalog, orders, auth, stock } = require('../../api/server');
 
 const A = { login: 'seller-a', password: 'пароль-продавца-А' };
 const STRANGER = { login: 'stranger', password: 'пароль-чужого-экземпляра' };
@@ -34,7 +34,7 @@ async function call(method, route, { token, body } = {}) {
   return { status: r.status, body: await r.json() };
 }
 async function newOrder() {
-  const p = catalog.all().find(x => x.fulfillment !== 'FBO' && x.stock >= 4);
+  const p = catalog.all().find(x => x.fulfillment !== 'FBO' && stock.availableStock(x, 'SITE') >= 4);
   const r = await call('POST', '/api/orders', { body: { items: [{ id: p.id, qty: 1 }], channel: 'SITE', customer: { name: 'Покупатель' } } });
   assert.equal(r.status, 201, 'покупатель оформляет заказ без входа');
   return r.body;

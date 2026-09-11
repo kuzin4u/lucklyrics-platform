@@ -8,7 +8,7 @@
 ```bash
 cp config/brand.example.json config/brand.json   # заполнить под продавца
 cp .env.example .env                              # секреты, в репозиторий не попадают
-npm test                                          # 71 проверок, ни одной зависимости
+npm test                                          # 86 проверок, ни одной зависимости
 node api/scripts/add-seller.js <логин> <пароль>    # продавец для кабинета
 JWT_SECRET=<от 32 символов> npm start              # http://localhost:3000/api/health
 ```
@@ -24,7 +24,7 @@ config/knowledge.md        база знаний помощника: факты 
 api/lib/schema.js          проверка конфигурации при старте
 api/lib/config.js          единственная точка чтения конфигурации
 api/lib/brand.js           слой брендирования: палитра, типографика, логотип, подпись
-api/lib/stock.js           единственная точка чтения остатка
+api/lib/stock.js           остаток: уровни, журнал движений, наборы, страховой запас
 api/lib/payments/          адаптеры: интерфейс из четырёх операций
 api/lib/marketplace/       клиент площадки с режимом сухого прогона
 api/lib/auth.js            вход в кабинет: scrypt, токен HMAC-SHA256, защита записи

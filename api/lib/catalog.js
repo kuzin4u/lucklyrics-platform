@@ -7,7 +7,10 @@
  * Источник: каталог в хранилище (store.js, имя catalog), его пишет импорт.
  * Пока импорта не было — стартовый файл config/catalog.json.
  * Чтение синхронное: хранилище читается один раз при старте (init),
- * дальше работает копия в памяти, её же меняют списания остатка.
+ * дальше работает копия в памяти. Остаток здесь не хранится — его ведёт stock.js.
+ *
+ * Вид позиции (kind): обычный товар (item) или набор (bundle). У набора — состав
+ * [{id, qty}] и своя заданная цена, своего остатка нет.
  */
 const fs = require('fs');
 const path = require('path');
@@ -27,9 +30,11 @@ function file() {
 }
 
 const normalize = it => Object.assign({
-  fulfillment: config.get('stock.fulfillmentDefault', 'FBS'),
-  stock: 0, oldPrice: 0, photos: [], features: []
+  kind: 'item', fulfillment: config.get('stock.fulfillmentDefault', 'FBS'),
+  oldPrice: 0, photos: [], features: []
 }, it);
+const isBundle = p => !!p && p.kind === 'bundle';
+const titleOf = id => (byId(id) || {}).title || id;
 
 function all() {
   if (cache) return cache;
@@ -70,9 +75,10 @@ const categories = () => {
 /** Витринное представление: остаток считает stock.js, цены — из каталога. */
 function forChannel(channelCode) {
   return all().map(p => ({
-    id: p.id, title: p.title, price: p.price, oldPrice: p.oldPrice || 0,
+    id: p.id, kind: p.kind, title: p.title, price: p.price, oldPrice: p.oldPrice || 0,
+    components: isBundle(p) ? p.components.map(c => ({ id: c.id, title: titleOf(c.id), qty: c.qty })) : undefined,
     unit: p.unit || '', weight: p.weight || '', emoji: p.emoji || '',
-    category: p.category, categoryTitle: p.categoryTitle || p.category,
+    category: p.category || '', categoryTitle: p.categoryTitle || p.category || '',
     description: p.description || '', features: p.features || [],
     rating: p.rating || 0, reviews: p.reviews || 0,
     available: stock.availableStock(p, channelCode)
@@ -100,14 +106,37 @@ function quote(items, channelCode) {
       e.available = stock.availableStock(p, channelCode); throw e;
     }
     const sum = p.price * n;
-    lines.push({ id: p.id, title: p.title, price: p.price, qty: n, sum });
+    const line = { id: p.id, title: p.title, price: p.price, qty: n, sum };
+    // набор — одна строка со своей ценой; состав раскрыт рядом для склада
+    if (isBundle(p)) Object.assign(line, { kind: 'bundle', components: p.components.map(c => ({ id: c.id, title: titleOf(c.id), qty: c.qty * n })) });
+    lines.push(line);
     goods += sum; qty += n;
+  }
+  // общий спрос по складу: набор и та же позиция отдельно делят один остаток
+  for (const r of expand(lines)) {
+    const p = byId(r.id);
+    if (!p || !stock.canSell(p, channelCode, r.qty)) {
+      const e = new Error('NOT_ENOUGH_STOCK'); e.code = 'NOT_ENOUGH_STOCK'; e.id = r.id;
+      e.available = p ? stock.availableStock(p, channelCode) : 0; throw e;
+    }
   }
   const pct = discountPct(qty);
   const discount = Math.round(goods * pct / 100);
   return { lines, qty, goods, discountPct: pct, discount, total: goods - discount };
 }
 
+/** Строки заказа → физические позиции для склада: наборы раскрыты, одинаковые сложены. */
+function expand(lines) {
+  const need = new Map();
+  for (const l of lines) {
+    for (const c of l.kind === 'bundle' ? l.components : [l]) {
+      const cur = need.get(c.id);
+      need.set(c.id, { id: c.id, title: c.title, qty: (cur ? cur.qty : 0) + c.qty });
+    }
+  }
+  return [...need.values()];
+}
+
 function reset() { cache = null; }
 
-module.exports = { all, byId, categories, forChannel, quote, discountPct, init, save, reset, file };
+module.exports = { all, byId, categories, forChannel, quote, expand, discountPct, init, save, reset, file };

@@ -12,8 +12,17 @@
  * Ошибки собираются построчно и не прерывают разбор; строки с ошибками
  * пропускаются, остальные применяются. Предпросмотр считает то же самое
  * и ничего не пишет.
+ *
+ * Остаток — не описание товара: колонки остатка идут в stock.js отдельным
+ * списком, и предпросмотр показывает их отдельно — видно, что перезапишется склад.
+ * Нет колонки — остаток не трогается вовсе.
+ *
+ * Набор: колонка «состав набора» в формате SKU-001×2|SKU-003×1. Компоненты —
+ * позиции каталога или этого же файла, в любом порядке строк. Набор в наборе
+ * запрещён, ссылка на несуществующую позицию — ошибка строки.
  */
 const catalog = require('./catalog');
+const stock = require('./stock');
 
 /** Поле каталога → возможные названия колонки, первое — основное. */
 const COLUMNS = {
@@ -33,14 +42,19 @@ const COLUMNS = {
   features:         ['features', 'особенности', 'преимущества'],
   photos:           ['photos', 'фотографии', 'галерея', 'photo', 'фото'],
   rating:           ['rating', 'рейтинг', 'оценка'],
-  reviews:          ['reviews', 'отзывы', 'кол-во отзывов']
+  reviews:          ['reviews', 'отзывы', 'кол-во отзывов'],
+  buffer:           ['buffer', 'страховой запас', 'буфер'],
+  // не «состав»: у продавцов еды так называется колонка ингредиентов
+  components:       ['components', 'состав набора', 'комплект', 'bundle']
 };
+const STOCK_FIELDS = ['stock', 'marketplaceStock'];
 
 const TITLES = {
   id: 'артикул', title: 'название', price: 'цена', oldPrice: 'старая цена', stock: 'остаток',
   marketplaceStock: 'остаток площадки', fulfillment: 'схема исполнения', category: 'категория',
   categoryTitle: 'название категории', unit: 'единица', weight: 'вес', emoji: 'эмодзи',
-  description: 'описание', features: 'особенности', photos: 'фотографии', rating: 'рейтинг', reviews: 'отзывы'
+  description: 'описание', features: 'особенности', photos: 'фотографии', rating: 'рейтинг', reviews: 'отзывы',
+  buffer: 'страховой запас', components: 'состав набора', kind: 'вид'
 };
 
 function fail(code, message, extra) {
@@ -155,81 +169,134 @@ const count = title => v => {
 const text = v => String(v).trim();
 const list = v => (Array.isArray(v) ? v.map(String) : String(v).split('|')).map(s => s.trim()).filter(Boolean);
 
+/** Состав набора: «SKU-001×2|SKU-003×1», множитель — × или *, без него — 1. */
+function components(v) {
+  const parts = Array.isArray(v) ? v : String(v).split('|');
+  const out = [];
+  for (const raw of parts) {
+    let id, qty;
+    if (raw && typeof raw === 'object') { id = text(raw.id == null ? '' : raw.id); qty = raw.qty === undefined ? 1 : number(raw.qty); }
+    else {
+      const s = String(raw).trim();
+      if (!s) continue;
+      const m = /^(.*?)\s*[×*]\s*(\S+)$/.exec(s);
+      id = (m ? m[1] : s).trim(); qty = m ? number(m[2]) : 1;
+    }
+    if (!id) throw 'состав набора: пропущен артикул компонента (' + shown(String(raw)) + ')';
+    if (!Number.isInteger(qty) || qty < 1) throw 'состав набора: кратность ' + id + ' — нужно целое число от 1';
+    if (out.some(c => c.id === id)) throw 'состав набора: ' + id + ' указан дважды';
+    out.push({ id, qty });
+  }
+  if (!out.length) throw 'состав набора пустой';
+  return out;
+}
+const showComponents = cs => (cs || []).map(c => c.id + '×' + c.qty).join('|');
+
 const PARSE = {
   id: text, title: text, category: text, categoryTitle: text, unit: text, weight: text, emoji: text, description: text,
   price: money('цена'), oldPrice: money('старая цена'),
   stock: count('остаток'), marketplaceStock: count('остаток площадки'), reviews: count('отзывы'),
   rating: v => { const n = number(v); if (Number.isNaN(n) || n < 0 || n > 5) throw 'рейтинг — нужно число от 0 до 5 (' + shown(v) + ')'; return n; },
   fulfillment: v => { const s = String(v).trim().toUpperCase(); if (s !== 'FBS' && s !== 'FBO') throw 'схема исполнения — FBS или FBO (' + shown(v) + ')'; return s; },
-  features: list, photos: list
+  features: list, photos: list, buffer: count('страховой запас'), components
 };
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /* ---------- план ---------- */
 
-/** Что будет создано, обновлено, оставлено и какие строки с ошибками. Ничего не меняет. */
-function plan(parsed, items) {
+/**
+ * Что будет создано, обновлено, оставлено, что перезапишется на складе
+ * и какие строки с ошибками. Ничего не меняет.
+ */
+function plan(parsed, items, levelOf) {
   const { byField, extra } = mapColumns(parsed.headers);
   if (byField.id === undefined) {
     fail('BAD_FILE', 'нет колонки с артикулом: подойдёт ' + COLUMNS.id.join(', '), { columns: parsed.headers });
   }
   const current = new Map(items.map(p => [String(p.id), p]));
   const seen = new Map();
-  const out = { created: [], updated: [], unchanged: [], errors: [] };
-  const label = parsed.format === 'json' ? 'запись ' : 'строка ';
+  const rows = [];
+  const out = { created: [], updated: [], unchanged: [], stock: [], errors: [] };
+  const label = (parsed.format === 'json' ? 'запись ' : 'строка ');
+  const err = (line, id, m) => out.errors.push({ line, id, message: label + line + ': ' + m });
 
+  // 1. разбор строк
   for (const rec of parsed.records) {
-    const where = label + rec.line;
-    const problems = [];
-    if (rec.notObject) { out.errors.push({ line: rec.line, message: where + ': ожидается объект позиции' }); continue; }
+    if (rec.notObject) { err(rec.line, undefined, 'ожидается объект позиции'); continue; }
     if (rec.cells.every(isEmpty)) continue;                       // пустая строка — не ошибка
-
     const idCell = rec.cells[byField.id];
-    if (isEmpty(idCell)) { out.errors.push({ line: rec.line, message: where + ': нет артикула' }); continue; }
+    if (isEmpty(idCell)) { err(rec.line, undefined, 'нет артикула'); continue; }
     const id = text(idCell);
-    if (seen.has(id)) {
-      out.errors.push({ line: rec.line, id, message: where + ': артикул ' + id + ' уже был в строке ' + seen.get(id) });
-      continue;
-    }
+    if (seen.has(id)) { err(rec.line, id, 'артикул ' + id + ' уже был в строке ' + seen.get(id)); continue; }
     seen.set(id, rec.line);
 
-    const values = {};
+    const values = {}, problems = [];
     for (const [field, i] of Object.entries(byField)) {
       if (field === 'id' || isEmpty(rec.cells[i])) continue;      // не прислали — не трогаем
       try { values[field] = PARSE[field](rec.cells[i]); }
       catch (msg) { problems.push(msg); }
     }
+    const stockVals = {};
+    for (const f of STOCK_FIELDS) if (f in values) { stockVals[f] = values[f]; delete values[f]; }
     const attrs = {};
     for (const i of extra) if (!isEmpty(rec.cells[i])) attrs[String(parsed.headers[i]).trim()] = text(rec.cells[i]);
 
     const old = current.get(id);
+    const bundle = 'components' in values || (old ? old.kind === 'bundle' : problems.some(m => m.startsWith('состав набора')));
+    if ('components' in values && old && old.kind !== 'bundle') problems.push('позиция уже заведена как товар — набор заводится отдельным артикулом');
+    if (bundle && Object.keys(stockVals).length) problems.push('у набора нет своего остатка — он считается из состава');
+    if (bundle && 'buffer' in values) problems.push('страховой запас задаётся компонентам, а не набору');
     if (!old) {
       if (values.title === undefined && !problems.some(m => m.startsWith('название'))) problems.push('нет названия — у новой позиции оно обязательно');
       if (values.price === undefined && !problems.some(m => m.startsWith('цена'))) problems.push('нет цены — у новой позиции она обязательна');
     }
-    if (problems.length) {
-      for (const m of problems) out.errors.push({ line: rec.line, id, message: where + ': ' + m });
-      continue;
-    }
-
-    if (!old) {
-      const item = Object.assign({ id }, values);
-      if (Object.keys(attrs).length) item.attrs = attrs;
-      out.created.push({ line: rec.line, id, title: item.title, item });
-      continue;
-    }
-    const item = Object.assign({}, old, values);
-    if (Object.keys(attrs).length) item.attrs = Object.assign({}, old.attrs, attrs);
-    const changes = Object.keys(values).filter(f => !same(old[f], values[f]))
-      .map(f => ({ field: f, title: TITLES[f], from: old[f], to: values[f] }));
-    for (const [k, v] of Object.entries(attrs)) {
-      if (!old.attrs || old.attrs[k] !== v) changes.push({ field: 'attrs.' + k, title: k, from: old.attrs && old.attrs[k], to: v });
-    }
-    if (changes.length) out.updated.push({ line: rec.line, id, title: item.title, changes, item });
-    else out.unchanged.push({ line: rec.line, id, title: old.title });
+    rows.push({ line: rec.line, id, values, stockVals, attrs, old, bundle, problems });
   }
 
+  // 2. состав наборов: компоненты — из каталога или из этого же файла, порядок строк не важен
+  const rowOf = new Map(rows.map(r => [r.id, r]));
+  const kindOf = cid => {
+    const r = rowOf.get(cid), p = current.get(cid);
+    if (r && !r.problems.length) return r.bundle ? 'bundle' : 'item';
+    if (p) return p.kind === 'bundle' ? 'bundle' : 'item';        // строка с ошибкой, но позиция уже есть
+    return r ? 'broken' : null;
+  };
+  for (const r of rows) {
+    for (const c of r.values.components || []) {
+      const k = c.id === r.id ? 'self' : kindOf(c.id);
+      if (k === 'self') r.problems.push('набор не может входить в себя');
+      else if (k === null) r.problems.push('компонент ' + c.id + ' не найден в каталоге');
+      else if (k === 'broken') r.problems.push('компонент ' + c.id + ' не импортируется: ошибка в строке ' + rowOf.get(c.id).line);
+      else if (k === 'bundle') r.problems.push('набор внутри набора запрещён: ' + c.id + ' — набор');
+    }
+  }
+
+  // 3. итог по строкам
+  for (const r of rows) {
+    if (r.problems.length) { r.problems.forEach(m => err(r.line, r.id, m)); continue; }
+    const { line, id, values, old } = r;
+    const item = old ? Object.assign({}, old, values) : Object.assign({ id }, values);
+    if (r.bundle) item.kind = 'bundle';
+    if (Object.keys(r.attrs).length) item.attrs = Object.assign({}, old && old.attrs, r.attrs);
+
+    const lv = levelOf(id);
+    const stockRows = Object.entries(r.stockVals).filter(([f, v]) => lv[f] !== v)
+      .map(([f, v]) => ({ line, id, title: item.title, field: f, fieldTitle: TITLES[f], from: old ? lv[f] : null, to: v }));
+    out.stock.push(...stockRows);
+
+    if (!old) { out.created.push({ line, id, title: item.title, kind: item.kind || 'item', item }); continue; }
+    const changes = Object.keys(values).filter(f => !same(old[f], values[f])).map(f => f === 'components'
+      ? { field: f, title: TITLES[f], from: showComponents(old[f]), to: showComponents(values[f]) }
+      : { field: f, title: TITLES[f], from: old[f], to: values[f] });
+    for (const [k, v] of Object.entries(r.attrs)) {
+      if (!old.attrs || old.attrs[k] !== v) changes.push({ field: 'attrs.' + k, title: k, from: old.attrs && old.attrs[k], to: v });
+    }
+    if (changes.length) out.updated.push({ line, id, title: item.title, changes, item });
+    else if (!stockRows.length) out.unchanged.push({ line, id, title: old.title });
+  }
+
+  out.errors.sort((a, b) => a.line - b.line);
   out.columns = {
     recognized: Object.entries(byField).map(([field, i]) => ({ header: String(parsed.headers[i]).trim(), field, title: TITLES[field] })),
     created: extra.map(i => String(parsed.headers[i]).trim())
@@ -247,25 +314,28 @@ const strip = rows => rows.map(({ item, ...rest }) => rest);
 
 /**
  * Импорт. input — текст или Buffer, format — подсказка (csv, json или Content-Type).
- * dryRun — только предпросмотр. Возвращает отчёт; строки с ошибками пропускаются.
+ * dryRun — только предпросмотр, by — продавец из токена для журнала склада.
+ * Возвращает отчёт; строки с ошибками пропускаются.
  */
-async function run(input, { format, dryRun } = {}) {
+async function run(input, { format, dryRun, by } = {}) {
   const content = decode(input == null ? '' : input);
   if (!content.trim()) fail('BAD_FILE', 'файл пустой');
   const fmt = formatOf(format, content);
   const parsed = Object.assign(fmt === 'json' ? parseJson(content) : parseCsv(content), { format: fmt });
 
-  let p = plan(parsed, catalog.all());
-  const writes = p.created.length + p.updated.length;
+  let p = plan(parsed, catalog.all(), stock.level);
+  const writes = p.created.length + p.updated.length + p.stock.length;
   if (!dryRun && writes) {
-    // план пересчитывается на момент записи — параллельный импорт не затрёт этот
-    await catalog.save(items => apply(p = plan(parsed, items), items));
+    // план пересчитывается на момент записи — параллельный импорт не затрёт этот.
+    // Сначала каталог, потом склад: при сбое между ними новая позиция видна с нулём, а не наоборот.
+    if (p.created.length + p.updated.length) await catalog.save(items => apply(p = plan(parsed, items, stock.level), items));
+    if (p.stock.length) await stock.setMany(p.stock.map(s => ({ id: s.id, field: s.field, value: s.to })), { reason: 'import', by });
   }
   return {
     dryRun: !!dryRun, format: fmt, applied: !dryRun && writes > 0,
     summary: { rows: parsed.records.length, created: p.created.length, updated: p.updated.length,
-      unchanged: p.unchanged.length, errors: p.errors.length },
-    created: strip(p.created), updated: strip(p.updated), unchanged: p.unchanged,
+      unchanged: p.unchanged.length, stock: p.stock.length, errors: p.errors.length },
+    created: strip(p.created), updated: strip(p.updated), unchanged: p.unchanged, stock: p.stock,
     errors: p.errors, columns: p.columns
   };
 }

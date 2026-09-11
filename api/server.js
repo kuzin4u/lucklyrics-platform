@@ -114,15 +114,30 @@ const routes = {
   }),
 
   // Тело — сам файл CSV или JSON; ?dryRun=1 — предпросмотр без записи.
-  'POST /api/catalog/import': cabinet(async (req, res, query) => {
+  'POST /api/catalog/import': cabinet(async (req, res, query, body, seller) => {
     try {
       json(res, 200, await importer.run(req.rawBody, {
         format: query.get('format') || req.headers['content-type'],
-        dryRun: ['1', 'true'].includes(query.get('dryRun'))
+        dryRun: ['1', 'true'].includes(query.get('dryRun')),
+        by: seller.login
       }));
     } catch (e) {
       if (e.code !== 'BAD_FILE') throw e;
       json(res, 400, { error: 'BAD_FILE', message: e.message });
+    }
+  }),
+
+  'GET /api/stock/log': cabinet((req, res, query) => json(res, 200, {
+    entries: stock.log({ id: query.get('id') || undefined, limit: query.get('limit') })
+  })),
+
+  // Ручная правка: {id, value | delta, reason}. Кто правил — только из токена.
+  'POST /api/stock/adjust': cabinet(async (req, res, query, body, seller) => {
+    try {
+      json(res, 200, await stock.adjust({ id: body.id, value: body.value, delta: body.delta, reason: body.reason, by: seller.login }));
+    } catch (e) {
+      const status = { UNKNOWN_SKU: 404, NEGATIVE_STOCK: 409 }[e.code] || 400;
+      json(res, status, { error: e.code || 'BAD_REQUEST', id: e.id, available: e.available });
     }
   }),
 
@@ -160,7 +175,7 @@ const server = http.createServer(async (req, res) => {
 if (require.main === module) {
   try { auth.assertConfigured(); }
   catch (e) { console.error('Сервер не запущен: ' + e.message); process.exit(1); }
-  catalog.init().then(() => server.listen(PORT, () =>
+  catalog.init().then(() => stock.init()).then(() => server.listen(PORT, () =>
     console.log('api on :' + PORT + ' · конфиг ' + config.load()._source + ' · хранилище ' + store.name())));
 }
 module.exports = { server, routes, config, brand, stock, payments, marketplace, catalog, orders, auth, store, importer };

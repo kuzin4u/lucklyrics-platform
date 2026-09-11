@@ -10,13 +10,13 @@ const path = require('path');
 
 process.env.STORE_PROVIDER = 'memory';
 process.env.JWT_SECRET = 'import-test-secret-0123456789-abcdefghij';
-const { server, catalog, store, importer, auth } = require('../../api/server');
+const { server, catalog, store, importer, auth, stock } = require('../../api/server');
 
 const FIXTURE = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'catalog-30.csv'));
 const SEED = catalog.all().length;
 let base, token;
 
-async function fresh() { catalog.reset(); await store.write('catalog', { items: null }); catalog.reset(); }
+async function fresh() { catalog.reset(); await store.write('catalog', { items: null }); catalog.reset(); await stock.reset(); }
 const csv = rows => rows.join('\n') + '\n';
 async function call(method, route, { body, type, auth: tk } = {}) {
   const headers = { 'Content-Type': type || 'application/json' };
@@ -36,7 +36,7 @@ test.after(() => server.close());
 test('тридцать позиций импортируются из файла за один проход', async () => {
   await fresh();
   const r = await importer.run(FIXTURE, { format: 'text/csv' });
-  assert.deepEqual(r.summary, { rows: 30, created: 30, updated: 0, unchanged: 0, errors: 0 });
+  assert.deepEqual(r.summary, { rows: 30, created: 30, updated: 0, unchanged: 0, stock: 29, errors: 0 });
   assert.equal(r.applied, true);
   assert.equal(catalog.all().length, SEED + 30);
   const p = catalog.byId('IMP-005');
@@ -47,7 +47,9 @@ test('тридцать позиций импортируются из файла
   assert.equal(catalog.byId('IMP-001').attrs['Производитель'], 'Поставщик 2', 'неизвестная колонка создана полем');
   assert.deepEqual(r.columns.created, ['Производитель']);
   const site = catalog.forChannel('SITE').find(x => x.id === 'IMP-004');
-  assert.equal(site.available, catalog.byId('IMP-004').stock, 'витрина видит позицию, остаток считает stock.js');
+  assert.equal(site.available, 12, 'витрина видит позицию и остаток из файла');
+  assert.equal(stock.level('IMP-004').stock, 12, 'остаток — в записи склада');
+  assert.ok(!('stock' in catalog.byId('IMP-004')), 'в описании товара остатка нет');
   assert.equal((await store.read('catalog')).items.length, SEED + 30, 'каталог записан в хранилище');
 });
 
@@ -55,19 +57,19 @@ test('повторная загрузка того же файла не плод
   await fresh();
   await importer.run(FIXTURE);
   const again = await importer.run(FIXTURE);
-  assert.deepEqual(again.summary, { rows: 30, created: 0, updated: 0, unchanged: 30, errors: 0 });
+  assert.deepEqual(again.summary, { rows: 30, created: 0, updated: 0, unchanged: 30, stock: 0, errors: 0 });
   assert.equal(again.applied, false, 'нечего писать — запись не делается');
   assert.equal(catalog.all().length, SEED + 30);
   const changed = FIXTURE.toString('utf8').replace('IMP-007;Позиция импорта 07;269;', 'IMP-007;Позиция импорта 07;299;');
   const third = await importer.run(changed);
-  assert.deepEqual(third.summary, { rows: 30, created: 0, updated: 1, unchanged: 29, errors: 0 });
+  assert.deepEqual(third.summary, { rows: 30, created: 0, updated: 1, unchanged: 29, stock: 0, errors: 0 });
   assert.deepEqual(third.updated[0].changes, [{ field: 'price', title: 'цена', from: 269, to: 299 }]);
   assert.equal(catalog.byId('IMP-007').price, 299);
   assert.equal(catalog.all().filter(p => p.id === 'IMP-007').length, 1);
 });
 
 test('колонки узнаются по русским и английским названиям, регистр и пробелы не мешают', async () => {
-  const pick = p => ({ id: p.id, title: p.title, price: p.price, stock: p.stock, category: p.category });
+  const pick = p => ({ id: p.id, title: p.title, price: p.price, stock: stock.level(p.id).stock, category: p.category });
   const results = [];
   const files = [
     csv(['Артикул;Наименование;Цена;Остаток;Категория', 'X-1;Первая;100;4;CAT-A', 'X-2;Вторая;200;0;CAT-B']),

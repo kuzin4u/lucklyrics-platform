@@ -6,10 +6,10 @@ const orders = require('../../api/lib/orders');
 const catalog = require('../../api/lib/catalog');
 const stock = require('../../api/lib/stock');
 
-const pick = () => catalog.all().find(p => p.fulfillment !== 'FBO' && p.stock >= 4);
+const pick = () => catalog.all().find(p => p.kind !== 'bundle' && stock.availableStock(p, 'SITE') >= 4);
 
 test('заказ создаётся, сумму считает сервер, остаток списывается', async () => {
-  await orders.reset(); catalog.reset();
+  await orders.reset(); catalog.reset(); await stock.reset();
   const p = pick();
   const before = stock.availableStock(catalog.byId(p.id), 'SITE');
   const o = await orders.create({
@@ -31,7 +31,7 @@ test('заказ без покупателя и пустая корзина не
 });
 
 test('статусы идут по потоку, отмена возвращает остаток', async () => {
-  await orders.reset(); catalog.reset();
+  await orders.reset(); catalog.reset(); await stock.reset();
   const p = pick();
   const before = stock.availableStock(catalog.byId(p.id), 'SITE');
   const o = await orders.create({ items: [{ id: p.id, qty: 1 }], channel: 'SITE', customer: { name: 'Тест' } });
@@ -42,14 +42,14 @@ test('статусы идут по потоку, отмена возвращае
 });
 
 test('платёж создаётся через адаптер и в сухом режиме не падает', async () => {
-  await orders.reset(); catalog.reset();
+  await orders.reset(); catalog.reset(); await stock.reset();
   const o = await orders.create({ items: [{ id: pick().id, qty: 1 }], channel: 'SITE', customer: { name: 'Тест' } });
   assert.ok(o.payment, 'платёж создан');
   assert.ok(o.payment.dryRun || o.payment.error, 'без ключей это сухой прогон');
 });
 
 test('сводка кабинета сходится с заказами', async () => {
-  await orders.reset(); catalog.reset();
+  await orders.reset(); catalog.reset(); await stock.reset();
   const p = pick();
   await orders.create({ items: [{ id: p.id, qty: 1 }], channel: 'SITE', customer: { name: 'А' } });
   await orders.create({ items: [{ id: p.id, qty: 2 }], channel: 'AGENT', customer: { name: 'Б' } });
