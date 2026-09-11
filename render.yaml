@@ -11,7 +11,11 @@ services:
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
+<<<<<<< HEAD
         value: "24"
+=======
+        value: "20"
+>>>>>>> Каркас платформы: конфигурация, брендирование, платёжный слой, клиент площадки
       - key: BRAND_CONFIG
         value: config/brand.json
       - key: MARKETPLACE_CLIENT_ID
