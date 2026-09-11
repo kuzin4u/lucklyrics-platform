@@ -48,7 +48,7 @@
   },
   "stock": {
     "scheme": "buffer",
-    "bufferDefault": 3,
+    "bufferDefault": 2,
     "bufferBySku": {},
     "fulfillmentDefault": "FBS"
   },
