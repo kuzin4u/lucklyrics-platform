@@ -8,6 +8,9 @@
  * отмена и возврат остатка, синхронизация с площадкой (журнал, предпросмотр,
  * сверка). Печатает отчёт с отметками, код выхода 1 — если есть провал.
  *
+ * Профиль без площадки — та же приёмка: шаги площадки не падают, а помечаются
+ * пропущенными с причиной (·). Пропуск виден в отчёте и не влияет на код выхода.
+ *
  * Ничего не ломает: заказ создаётся один, помечен как тестовый и отменяется
  * в конце, даже если шаг посередине упал. Без учётных данных кабинета заказ
  * не создаётся вовсе — его нечем было бы отменить.
@@ -75,7 +78,8 @@ async function run(base, opts = {}) {
   if (opts.print) {
     const all = r.steps.flatMap(s => s.checks);
     const n = k => all.filter(c => c.status === k).length;
-    opts.print('\nИтого: ' + n('ok') + ' ✓, ' + n('fail') + ' ✗, ' + n('warn') + ' ⚠' + (r.failed ? ' — ПРИЁМКА НЕ ПРОЙДЕНА' : ' — приёмка пройдена'));
+    opts.print('\nИтого: ' + n('ok') + ' ✓, ' + n('fail') + ' ✗, ' + n('warn') + ' ⚠' + (n('skip') ? ', ' + n('skip') + ' · пропущено' : '') +
+      (r.failed ? ' — ПРИЁМКА НЕ ПРОЙДЕНА' : ' — приёмка пройдена'));
   }
   return { ok: !r.failed, steps: r.steps, order: ctx.orderId };
 }
@@ -87,7 +91,8 @@ async function scenario(api, r, opts, ctx) {
   if (!r.check(h.status === 200 && h.json && h.json.ok ? 'ok' : 'fail', 'GET /api/health → ' + h.status)) return;
   const m = h.json;
   r.check('ok', 'экземпляр ' + m.instance + ', хранилище ' + m.storage + ', схема остатка ' + m.stockScheme);
-  r.check(m.marketplace === 'dry-run' ? 'ok' : 'warn', 'площадка: ' + m.marketplace + (m.marketplace === 'dry-run' ? '' : ' — запросы уходят в бой'));
+  r.check(m.sync === 'live' ? 'warn' : 'ok', 'площадка: ' + (m.sync === 'off' ? 'выключена в конфигурации — синхронизации не будет'
+    : m.sync === 'live' ? 'боевой режим — запросы уходят в бой' : 'сухой прогон'));
   r.check(/:dry$/.test(m.payments) ? 'ok' : 'warn', 'платежи: ' + m.payments + (/:dry$/.test(m.payments) ? '' : ' — тестовый заказ создаст неоплаченный платёж, он истечёт сам'));
   r.check(/example/.test(m.configSource) ? 'warn' : 'ok', 'конфиг бренда: ' + m.configSource + (/example/.test(m.configSource) ? ' — это пример, бренд продавца не подключён' : ''));
   if (m.storage === 'memory') r.check('warn', 'хранилище в памяти: данные пропадут при перезапуске');
@@ -178,7 +183,12 @@ async function scenario(api, r, opts, ctx) {
   r.step('9. Синхронизация с площадкой');
   let s = (await api('GET', '/api/sync/log?limit=20', { token: ctx.token })).json;
   if (!r.check(s ? 'ok' : 'fail', 'журнал синхронизации виден в кабинете')) return;
-  if (!s.active) { r.check('warn', 'синхронизация выключена в конфигурации — пропуск'); return; }
+  if (s.disabled || !s.active) {
+    r.check('skip', 'шаги площадки пропущены: ' + (s.message || 'площадка выключена в конфигурации') + ' — витрина, заказы и кабинет проверены выше');
+    const off = (await api('GET', '/api/sync/diff', { token: ctx.token })).json || {};
+    r.check(off.status === 'DISABLED' ? 'ok' : 'fail', 'сверка отвечает внятно: ' + (off.status || '—') + (off.status === 'DISABLED' ? '' : ' — ожидается DISABLED'));
+    return;
+  }
   r.check('ok', 'режим: ' + (s.mode === 'dry-run' ? 'сухой прогон' : 'боевой') + ', окно ' + s.windowMs + ' мс');
   const since = ctx.orderAt;
   const deadline = Date.now() + s.windowMs + 4000;

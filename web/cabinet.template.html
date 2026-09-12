@@ -258,9 +258,10 @@ header .who{align-self:center;font-size:12.5px;color:var(--soft)}
   <div id="syncView" hidden>
     <section class="panel">
       <h2>Синхронизация с площадкой <span class="mode" id="syncMode"></span></h2>
-      <div class="soft">Цены — из каталога, остатки — доступные для площадки, уже без страхового запаса. Позиции со склада
+      <div class="soft" id="syncHow">Цены — из каталога, остатки — доступные для площадки, уже без страхового запаса. Позиции со склада
         площадки и наборы в остатки не уходят. Изменения копятся несколько секунд и уходят одной посылкой.</div>
       <div class="sync-alert" id="syncAlert2" role="alert" hidden></div>
+      <div class="note" id="syncOff" hidden></div>
       <div class="sync-actions">
         <button class="primary" id="syncPreview">Что уйдёт</button>
         <button class="rowbtn" id="syncRun">Отправить сейчас</button>
@@ -449,15 +450,20 @@ async function loadSync() {
   const s = await api('/api/sync/log?limit=100');
   if (!s) return;
   show('sync');
-  $('syncMode').textContent = s.mode === 'live' ? 'боевой режим' : 'сухой прогон';
-  $('syncMode').className = 'mode' + (s.mode === 'live' ? ' live' : '');
+  $('syncMode').textContent = s.disabled ? 'выключена' : s.mode === 'live' ? 'боевой режим' : 'сухой прогон';
+  $('syncMode').className = 'mode' + (s.mode === 'live' && !s.disabled ? ' live' : '');
+  // профиль без площадки: экран остаётся, но объясняет состояние и не предлагает действий
+  document.querySelector('#syncView .sync-actions').hidden = !!s.disabled;
+  $('syncHow').hidden = !!s.disabled;
+  $('syncOff').hidden = !s.disabled;
+  $('syncOff').textContent = s.disabled ? s.message + '. Витрина, заказы, импорт и помощник работают как обычно.' : '';
   $('syncAlert2').hidden = !s.alert;
   $('syncAlert2').textContent = s.alert ? s.alert.message : '';
   $('syncRows').innerHTML = s.entries.length ? s.entries.map(e => '<tr><td class="soft">' + when(e.at) + '</td><td>' + KIND[e.kind] + '</td>' +
     '<td class="soft">' + esc((e.reasons || []).map(r => WHY[r] || r).join(', ')) + '</td><td>' + e.count + '</td><td>' + e.attempts + '</td>' +
     '<td>' + (e.ok ? '<span class="okmark">✓</span> ' : '<span class="badmark">✗</span> ') + esc(e.error || e.response || '') + '</td></tr>').join('')
-    : '<tr><td colspan="6" class="empty">Отправок ещё не было. Изменение цены или остатка, заказ или кнопка «Отправить сейчас» — и запись появится здесь.' +
-      (s.pending ? ' В очереди: ' + s.pending + '.' : '') + '</td></tr>';
+    : '<tr><td colspan="6" class="empty">' + (s.disabled ? 'Площадка выключена — отправлять нечего.' : 'Отправок ещё не было. Изменение цены или остатка, заказ или кнопка «Отправить сейчас» — и запись появится здесь.' +
+      (s.pending ? ' В очереди: ' + s.pending + '.' : '')) + '</td></tr>';
 }
 
 function previewHtml(p) {

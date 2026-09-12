@@ -29,6 +29,7 @@ const LOG_LIMIT = 300;                       // журнал оперативн�
 const CHUNK = { prices: 1000, stocks: 100 }; // пределы площадки на одну посылку
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const KIND_TITLE = { prices: 'цены', stocks: 'остатки' };
+const OFF = 'площадка выключена в конфигурации: marketplace.enabled или канал MARKETPLACE';
 
 function createSync(opts = {}) {
   const client = opts.client || defaultClient;
@@ -177,7 +178,7 @@ function createSync(opts = {}) {
 
   /** Ручной запуск: всё сразу. preview — только показать, что уйдёт, ничего не отправляя. */
   async function run({ preview, by } = {}) {
-    if (!active()) return { preview: !!preview, mode: mode(), disabled: true, message: 'площадка выключена в конфигурации (marketplace.enabled или канал MARKETPLACE)' };
+    if (!active()) return { preview: !!preview, mode: mode(), disabled: true, message: OFF };
     const all = everything(by ? 'вручную: ' + by : 'вручную');
     if (preview) return Object.assign({ preview: true, mode: mode() }, plan(all));
     for (const [id, k] of all) mark(id, k, [...k.reasons][0]);
@@ -185,6 +186,7 @@ function createSync(opts = {}) {
   }
 
   async function log({ limit } = {}) {
+    if (!active()) return { mode: mode(), active: false, disabled: true, message: OFF, pending: 0, windowMs: windowMs(), alert: null, entries: [] };
     const s = (await store.read(NAME)) || {};
     const n = Number(limit) || 100;
     return { mode: mode(), active: active(), pending: pending.size, alert: s.alert || null, windowMs: windowMs(),
@@ -196,6 +198,7 @@ function createSync(opts = {}) {
    * данных площадки — так и отвечает: пустой список значил бы «всё сходится».
    */
   async function diff() {
+    if (!active()) return { status: 'DISABLED', mode: mode(), message: OFF };
     let s = (await store.read(NAME)) || {};
     let readError = null;
     if (mode() === 'live' && client.fetchState) {
@@ -252,7 +255,10 @@ function createSync(opts = {}) {
     if (timer) { clearTimeout(timer); timer = null; }
   }
 
-  const api = { start, stop, notify, flush, run, log, diff, plan: sel => plan(sel || everything('план')), pendingSize: () => pending.size };
+  /** Состояние для проверки живости: off — площадки нет в конфигурации. */
+  const state = () => (active() ? mode() : 'off');
+
+  const api = { start, stop, notify, flush, run, log, diff, state, plan: sel => plan(sel || everything('план')), pendingSize: () => pending.size };
   return api;
 }
 

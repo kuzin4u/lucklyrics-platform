@@ -61,7 +61,7 @@ const routes = {
     payments: payments.adapterFor().name + (payments.adapterFor().live() ? ':live' : ':dry'),
     stockScheme: config.get('stock.scheme'),
     storage: store.name(),
-    sync: marketplace.isDry() ? 'dry-run' : 'live',
+    sync: sync.state(),
     agent: agent.available() ? 'on' : 'off',
     previews: config.listPreviews(),
     time: new Date().toISOString()
